@@ -1,5 +1,4 @@
-# paste this prompt into GitHub Copilot chat and reference a file called azure_infra.yml that contains the workflow structure you would like to use
+# paste this prompt into GitHub Copilot chat in Agent mode and reference a file called <filename> that contains the workflow structure you would like to use
 
 # create me a github action workflow that deploys my app located #folder:app to azure.
-
 # use this as an example of the workflow structure #file:azure_infra.yml
