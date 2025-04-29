@@ -50,23 +50,33 @@ jobs:
             baseName=${{ github.event.inputs.baseName }}
             location=${{ github.event.inputs.location }}
 
-      - name: Store MongoDB Connection String as Secret
+      - name: Get CosmosDB Account Name
+        run: |
+          COSMOS_ACCOUNT_NAME=$(echo "${{ steps.deploy.outputs.cosmosAccountName }}" | tr -d '"')
+          echo "COSMOS_ACCOUNT_NAME=$COSMOS_ACCOUNT_NAME" >> $GITHUB_ENV
+
+      - name: Create and Store MongoDB Connection String as Secret
         uses: azure/cli@v1
         with:
           azcliversion: latest
           inlineScript: |
-            MONGODB_CONNECTION_STRING=$(az deployment group show \
-              --name ${{ steps.deploy.outputs.deploymentName }} \
+            # Get CosmosDB primary key securely using Azure CLI
+            COSMOS_PRIMARY_KEY=$(az cosmosdb keys list --name ${{ env.COSMOS_ACCOUNT_NAME }} \
               --resource-group ${{ github.event.inputs.resourceGroupName }} \
-              --query properties.outputs.mongodbConnectionString.value \
-              --output tsv)
+              --query primaryMasterKey -o tsv)
 
+            # Construct MongoDB connection string
+            MONGODB_CONNECTION_STRING="mongodb://${{ env.COSMOS_ACCOUNT_NAME }}:${COSMOS_PRIMARY_KEY}@${{ env.COSMOS_ACCOUNT_NAME }}.mongo.cosmos.azure.com:10255/?ssl=true&replicaSet=globaldb&retrywrites=false&maxIdleTimeMS=120000&appName=@${{ env.COSMOS_ACCOUNT_NAME }}@"
+
+            # Do not output connection string to logs but store it in GitHub env
+            echo "::add-mask::$MONGODB_CONNECTION_STRING"
             echo "MONGODB_CONNECTION_STRING=$MONGODB_CONNECTION_STRING" >> $GITHUB_ENV
 
             # Set MongoDB connection string as a GitHub secret
             if [ -n "${{ secrets.REPO_GITHUB_TOKEN }}" ]; then
               gh auth login --with-token <<< "${{ secrets.REPO_GITHUB_TOKEN }}"
               echo "Setting MONGODB_CONNECTION_STRING as a repository secret"
+              # Using echo to pipe the secret value avoids showing it in logs
               echo "$MONGODB_CONNECTION_STRING" | gh secret set MONGODB_CONNECTION_STRING
             else
               echo "REPO_GITHUB_TOKEN not found. Please manually set the MONGODB_CONNECTION_STRING as a repository secret."
@@ -79,12 +89,14 @@ jobs:
         with:
           azcliversion: latest
           inlineScript: |
-            STATIC_WEB_APP_NAME="${{ github.event.inputs.baseName }}-client"
+            STATIC_WEB_APP_NAME="${{ steps.deploy.outputs.staticWebAppName }}"
             STATIC_WEB_APP_DEPLOY_TOKEN=$(az staticwebapp secrets list \
               --name $STATIC_WEB_APP_NAME \
               --query 'properties.apiKey' \
               --output tsv)
 
+            # Mask the token so it doesn't appear in logs
+            echo "::add-mask::$STATIC_WEB_APP_DEPLOY_TOKEN"
             echo "STATIC_WEB_APP_DEPLOY_TOKEN=$STATIC_WEB_APP_DEPLOY_TOKEN" >> $GITHUB_ENV
 
             # Set Static Web App deployment token as a GitHub secret

@@ -99,7 +99,9 @@ resource cosmosAccount 'Microsoft.DocumentDB/databaseAccounts@2023-04-15' = {
         isZoneRedundant: false
       }
     ]
-    capacityMode: cosmosCapacityMode
+    capacity: {
+      totalThroughputLimit: cosmosCapacityMode == 'Provisioned' ? 400 : null
+    }
   }
 }
 
@@ -121,7 +123,7 @@ resource cosmosCollection 'Microsoft.DocumentDB/databaseAccounts/mongodbDatabase
   properties: {
     resource: {
       id: cosmosCollectionName
-      shardKey: { '_id': 'Hash' }
+      shardKey: { _id: 'Hash' }
       indexes: [
         {
           key: { keys: ['_id'] }
@@ -131,8 +133,9 @@ resource cosmosCollection 'Microsoft.DocumentDB/databaseAccounts/mongodbDatabase
   }
 }
 
-// Output values
+// Output only non-sensitive values
 output appServiceUrl string = 'https://${appService.properties.defaultHostName}'
 output staticWebAppUrl string = staticWebApp.properties.defaultHostname
-output cosmosConnectionString string = listKeys(cosmosAccount.id, cosmosAccount.apiVersion).primaryMasterKey
-output mongodbConnectionString string = 'mongodb://${cosmosAccountName}:${listKeys(cosmosAccount.id, cosmosAccount.apiVersion).primaryMasterKey}@${cosmosAccountName}.mongo.cosmos.azure.com:10255/?ssl=true&replicaSet=globaldb&retrywrites=false&maxIdleTimeMS=120000&appName=@${cosmosAccountName}@'
+output cosmosAccountName string = cosmosAccountName
+output appServiceName string = appServiceName
+output staticWebAppName string = staticWebAppName

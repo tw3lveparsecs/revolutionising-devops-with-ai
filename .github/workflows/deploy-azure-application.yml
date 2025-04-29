@@ -1,8 +1,6 @@
-name: Deploy to Azure
+name: Deploy Azure Application
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 env:
