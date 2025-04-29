@@ -1,0 +1,114 @@
+name: Deploy Azure Infrastructure
+
+on:
+  workflow_dispatch:
+    inputs:
+      resourceGroupName:
+        description: "Azure Resource Group Name"
+        required: true
+        default: "star-wars-collectibles-rg"
+      location:
+        description: "Azure Region Location"
+        required: true
+        default: "australiaeast"
+      baseName:
+        description: "Base name for resources"
+        required: true
+        default: "star-wars-collectibles"
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy-infrastructure:
+    name: Deploy Azure Infrastructure
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Create Resource Group if not exists
+        run: |
+          az group create --name ${{ github.event.inputs.resourceGroupName }} --location ${{ github.event.inputs.location }} --output none
+
+      - name: Deploy Bicep Template
+        id: deploy
+        uses: azure/arm-deploy@v1
+        with:
+          resourceGroupName: ${{ github.event.inputs.resourceGroupName }}
+          template: ./azure-infrastructure.bicep
+          parameters: >
+            baseName=${{ github.event.inputs.baseName }}
+            location=${{ github.event.inputs.location }}
+
+      - name: Store MongoDB Connection String as Secret
+        uses: azure/cli@v1
+        with:
+          azcliversion: latest
+          inlineScript: |
+            MONGODB_CONNECTION_STRING=$(az deployment group show \
+              --name ${{ steps.deploy.outputs.deploymentName }} \
+              --resource-group ${{ github.event.inputs.resourceGroupName }} \
+              --query properties.outputs.mongodbConnectionString.value \
+              --output tsv)
+
+            echo "MONGODB_CONNECTION_STRING=$MONGODB_CONNECTION_STRING" >> $GITHUB_ENV
+
+            # Set MongoDB connection string as a GitHub secret
+            if [ -n "${{ secrets.REPO_GITHUB_TOKEN }}" ]; then
+              gh auth login --with-token <<< "${{ secrets.REPO_GITHUB_TOKEN }}"
+              echo "Setting MONGODB_CONNECTION_STRING as a repository secret"
+              echo "$MONGODB_CONNECTION_STRING" | gh secret set MONGODB_CONNECTION_STRING
+            else
+              echo "REPO_GITHUB_TOKEN not found. Please manually set the MONGODB_CONNECTION_STRING as a repository secret."
+            fi
+        env:
+          GH_TOKEN: ${{ secrets.REPO_GITHUB_TOKEN }}
+
+      - name: Get Static Web App Deployment Token
+        uses: azure/cli@v1
+        with:
+          azcliversion: latest
+          inlineScript: |
+            STATIC_WEB_APP_NAME="${{ github.event.inputs.baseName }}-client"
+            STATIC_WEB_APP_DEPLOY_TOKEN=$(az staticwebapp secrets list \
+              --name $STATIC_WEB_APP_NAME \
+              --query 'properties.apiKey' \
+              --output tsv)
+
+            echo "STATIC_WEB_APP_DEPLOY_TOKEN=$STATIC_WEB_APP_DEPLOY_TOKEN" >> $GITHUB_ENV
+
+            # Set Static Web App deployment token as a GitHub secret
+            if [ -n "${{ secrets.REPO_GITHUB_TOKEN }}" ]; then
+              gh auth login --with-token <<< "${{ secrets.REPO_GITHUB_TOKEN }}"
+              echo "Setting STATIC_WEB_APP_DEPLOY_TOKEN as a repository secret"
+              echo "$STATIC_WEB_APP_DEPLOY_TOKEN" | gh secret set STATIC_WEB_APP_DEPLOY_TOKEN
+            else
+              echo "REPO_GITHUB_TOKEN not found. Please manually set the STATIC_WEB_APP_DEPLOY_TOKEN as a repository secret."
+            fi
+        env:
+          GH_TOKEN: ${{ secrets.REPO_GITHUB_TOKEN }}
+
+      - name: Output Resource Information
+        run: |
+          echo "🎉 Azure Resources Deployed Successfully!"
+          echo ""
+          echo "Resource Group: ${{ github.event.inputs.resourceGroupName }}"
+          echo "Base Name: ${{ github.event.inputs.baseName }}"
+          echo "Region: ${{ github.event.inputs.location }}"
+          echo ""
+          echo "🌐 App Service URL: ${{ steps.deploy.outputs.appServiceUrl }}"
+          echo "🖥️ Static Web App URL: ${{ steps.deploy.outputs.staticWebAppUrl }}"
+          echo ""
+          echo "Application secrets have been stored in GitHub repository secrets:"
+          echo "- MONGODB_CONNECTION_STRING"
+          echo "- STATIC_WEB_APP_DEPLOY_TOKEN"
