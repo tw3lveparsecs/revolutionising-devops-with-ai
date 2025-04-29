@@ -4,6 +4,9 @@ param baseName string = 'revolutionising-devops'
 @description('Location for all resources')
 param location string = resourceGroup().location
 
+@description('Location for Static Web App')
+param staticWebAppLocation string = location
+
 @description('App Service Plan SKU')
 param appServicePlanSku string = 'B1'
 
@@ -62,7 +65,7 @@ resource appService 'Microsoft.Web/sites@2022-03-01' = {
 // Static Web App for Frontend
 resource staticWebApp 'Microsoft.Web/staticSites@2022-03-01' = {
   name: staticWebAppName
-  location: location
+  location: staticWebAppLocation
   sku: {
     name: 'Standard'
     tier: 'Standard'

@@ -15,6 +15,10 @@ on:
         description: "Base name for resources"
         required: true
         default: "star-wars-collectibles"
+      staticWebAppLocation:
+        description: "Static Web App Location (can be different from main location)"
+        required: false
+        default: "eastasia"
 
 permissions:
   id-token: write
@@ -49,6 +53,7 @@ jobs:
           parameters: >
             baseName=${{ github.event.inputs.baseName }}
             location=${{ github.event.inputs.location }}
+            staticWebAppLocation=${{ github.event.inputs.staticWebAppLocation || github.event.inputs.location }}
 
       - name: Get CosmosDB Account Name
         run: |
@@ -117,6 +122,7 @@ jobs:
           echo "Resource Group: ${{ github.event.inputs.resourceGroupName }}"
           echo "Base Name: ${{ github.event.inputs.baseName }}"
           echo "Region: ${{ github.event.inputs.location }}"
+          echo "Static Web App Region: ${{ github.event.inputs.staticWebAppLocation || github.event.inputs.location }}"
           echo ""
           echo "🌐 App Service URL: ${{ steps.deploy.outputs.appServiceUrl }}"
           echo "🖥️ Static Web App URL: ${{ steps.deploy.outputs.staticWebAppUrl }}"
