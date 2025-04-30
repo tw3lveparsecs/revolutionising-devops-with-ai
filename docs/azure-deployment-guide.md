@@ -37,7 +37,7 @@ Take the JSON output and create the following secrets in your GitHub repository:
 - `AZURE_CLIENT_ID`: Client ID from the JSON
 - `AZURE_TENANT_ID`: Tenant ID from the JSON
 - `AZURE_SUBSCRIPTION_ID`: Your Azure subscription ID
-- `REPO_GITHUB_TOKEN`: A GitHub personal access token with `repo` scope to update repository secrets
+- `REPO_GITHUB_TOKEN`: A GitHub fine-grained access token with `secrets`:`Read and write` access scoped to this repository only
 
 ### 2. Deploy Azure Infrastructure
 

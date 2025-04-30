@@ -60,10 +60,7 @@ jobs:
           COSMOS_ACCOUNT_NAME=$(echo "${{ steps.deploy.outputs.cosmosAccountName }}" | tr -d '"')
           echo "COSMOS_ACCOUNT_NAME=$COSMOS_ACCOUNT_NAME" >> $GITHUB_ENV
 
-      - name: gh auth login
-        run: gh auth login --with-token <<< ${{ secrets.REPO_GITHUB_TOKEN }}
-
-      - name: Create and Store MongoDB Connection String as Secret
+      - name: Get MongoDB Connection String
         uses: azure/cli@v1
         with:
           azcliversion: latest
@@ -80,16 +77,15 @@ jobs:
             echo "::add-mask::$MONGODB_CONNECTION_STRING"
             echo "MONGODB_CONNECTION_STRING=$MONGODB_CONNECTION_STRING" >> $GITHUB_ENV
 
-            # Set MongoDB connection string as a GitHub secret
-            if [ -n "${{ secrets.REPO_GITHUB_TOKEN }}" ]; then
-              echo "Setting MONGODB_CONNECTION_STRING as a repository secret"
-              # Using echo to pipe the secret value avoids showing it in logs
-              echo "$MONGODB_CONNECTION_STRING" | gh secret set MONGODB_CONNECTION_STRING
-            else
-              echo "REPO_GITHUB_TOKEN not found. Please manually set the MONGODB_CONNECTION_STRING as a repository secret."
-            fi
-        # env:
-        #   GH_TOKEN: ${{ secrets.REPO_GITHUB_TOKEN }}
+      - name: gh auth login
+        run: gh auth login --with-token <<< ${{ secrets.REPO_GITHUB_TOKEN }}
+
+      - name: Set MongoDB Connection String as GitHub Secret
+        if: ${{ secrets.REPO_GITHUB_TOKEN != '' }}
+        run: |
+          echo "Setting MONGODB_CONNECTION_STRING as a repository secret"
+          echo "${{ env.MONGODB_CONNECTION_STRING }}" | gh secret set MONGODB_CONNECTION_STRING
+        shell: bash
 
       - name: Get Static Web App Deployment Token
         uses: azure/cli@v1
@@ -106,15 +102,12 @@ jobs:
             echo "::add-mask::$STATIC_WEB_APP_DEPLOY_TOKEN"
             echo "STATIC_WEB_APP_DEPLOY_TOKEN=$STATIC_WEB_APP_DEPLOY_TOKEN" >> $GITHUB_ENV
 
-            # Set Static Web App deployment token as a GitHub secret
-            if [ -n "${{ secrets.REPO_GITHUB_TOKEN }}" ]; then
-              echo "Setting STATIC_WEB_APP_DEPLOY_TOKEN as a repository secret"
-              echo "$STATIC_WEB_APP_DEPLOY_TOKEN" | gh secret set STATIC_WEB_APP_DEPLOY_TOKEN
-            else
-              echo "REPO_GITHUB_TOKEN not found. Please manually set the STATIC_WEB_APP_DEPLOY_TOKEN as a repository secret."
-            fi
-        # env:
-        #   GH_TOKEN: ${{ secrets.REPO_GITHUB_TOKEN }}
+      - name: Set Static Web App Deploy Token as GitHub Secret
+        if: ${{ secrets.REPO_GITHUB_TOKEN != '' }}
+        run: |
+          echo "Setting STATIC_WEB_APP_DEPLOY_TOKEN as a repository secret"
+          echo "${{ env.STATIC_WEB_APP_DEPLOY_TOKEN }}" | gh secret set STATIC_WEB_APP_DEPLOY_TOKEN
+        shell: bash
 
       - name: Output Resource Information
         run: |
