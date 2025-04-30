@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
 
 env:
-  NODE_VERSION: "18.x"
+  NODE_VERSION: "22.x"
   AZURE_WEBAPP_NAME: star-wars-collectibles-api
   AZURE_STATIC_WEB_APP_NAME: star-wars-collectibles-client
   MONGODB_CONNECTION_STRING: ${{ secrets.MONGODB_CONNECTION_STRING }}
