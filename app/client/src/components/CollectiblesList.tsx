@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React from "react";
 import { Collectible } from "../types/models";
 import "./Components.css";
 

@@ -15,7 +15,6 @@ function App() {
   const [collectibles, setCollectibles] = useState<ApiResponse | null>(null);
   const [users, setUsers] = useState<ApiResponse | null>(null);
   const [orders, setOrders] = useState<ApiResponse | null>(null);
-  const [apiStatus, setApiStatus] = useState<string>("Loading...");
   const [activeTab, setActiveTab] = useState<
     "collectibles" | "users" | "orders"
   >("collectibles");
@@ -26,8 +25,8 @@ function App() {
       try {
         // Test API connection first
         const testResponse = await fetch("http://localhost:5000/api/test");
-        const testData = await testResponse.json();
-        setApiStatus(`API Status: ${testData.message}`);
+        // const testData = await testResponse.json();
+        // Removed unused apiStatus update
 
         // Fetch data from all endpoints
         const collectiblesData =
@@ -40,9 +39,7 @@ function App() {
         setOrders(ordersData);
       } catch (error) {
         console.error("Error fetching data:", error);
-        setApiStatus(
-          "Error connecting to API. Make sure the backend server is running on port 5000."
-        );
+        // Removed unused apiStatus update
       }
     };
 
