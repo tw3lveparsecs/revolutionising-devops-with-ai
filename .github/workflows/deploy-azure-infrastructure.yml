@@ -81,7 +81,6 @@ jobs:
         run: gh auth login --with-token <<< ${{ secrets.REPO_GITHUB_TOKEN }}
 
       - name: Set MongoDB Connection String as GitHub Secret
-        if: ${{ secrets.REPO_GITHUB_TOKEN != '' }}
         run: |
           echo "Setting MONGODB_CONNECTION_STRING as a repository secret"
           echo "${{ env.MONGODB_CONNECTION_STRING }}" | gh secret set MONGODB_CONNECTION_STRING
@@ -103,7 +102,6 @@ jobs:
             echo "STATIC_WEB_APP_DEPLOY_TOKEN=$STATIC_WEB_APP_DEPLOY_TOKEN" >> $GITHUB_ENV
 
       - name: Set Static Web App Deploy Token as GitHub Secret
-        if: ${{ secrets.REPO_GITHUB_TOKEN != '' }}
         run: |
           echo "Setting STATIC_WEB_APP_DEPLOY_TOKEN as a repository secret"
           echo "${{ env.STATIC_WEB_APP_DEPLOY_TOKEN }}" | gh secret set STATIC_WEB_APP_DEPLOY_TOKEN
