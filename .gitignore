@@ -105,11 +105,8 @@ app/server/local.settings.json
 # Package files
 *.tgz
 yarn.lock
-package-lock.json
 app/client/yarn.lock
-app/client/package-lock.json
 app/server/yarn.lock
-app/server/package-lock.json
 
 # Temporary folders
 tmp/
