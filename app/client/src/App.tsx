@@ -23,11 +23,6 @@ function App() {
     // Function to fetch data from all endpoints
     const fetchData = async () => {
       try {
-        // Test API connection first
-        const testResponse = await fetch("http://localhost:5000/api/test");
-        // const testData = await testResponse.json();
-        // Removed unused apiStatus update
-
         // Fetch data from all endpoints
         const collectiblesData =
           (await collectiblesApi.getAll()) as ApiResponse;
@@ -39,7 +34,6 @@ function App() {
         setOrders(ordersData);
       } catch (error) {
         console.error("Error fetching data:", error);
-        // Removed unused apiStatus update
       }
     };
 
