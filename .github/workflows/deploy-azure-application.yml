@@ -5,8 +5,8 @@ on:
 
 env:
   NODE_VERSION: "18.x"
-  AZURE_WEBAPP_NAME: revolutionising-devops-api
-  AZURE_STATIC_WEB_APP_NAME: revolutionising-devops-client
+  AZURE_WEBAPP_NAME: star-wars-collectibles-api
+  AZURE_STATIC_WEB_APP_NAME: star-wars-collectibles-client
   MONGODB_CONNECTION_STRING: ${{ secrets.MONGODB_CONNECTION_STRING }}
 
 permissions:
