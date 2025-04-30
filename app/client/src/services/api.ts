@@ -1,4 +1,5 @@
-const API_URL = "http://localhost:5000/api";
+// Use environment variable for API URL or fallback to localhost for development
+const API_URL = process.env.REACT_APP_API_URL || "http://localhost:5000";
 
 // Generic API request function with error handling
 async function apiRequest<T>(
@@ -6,7 +7,7 @@ async function apiRequest<T>(
   options?: RequestInit
 ): Promise<T> {
   try {
-    const response = await fetch(`${API_URL}${endpoint}`, options);
+    const response = await fetch(`${API_URL}/api${endpoint}`, options);
 
     if (!response.ok) {
       throw new Error(`API Error: ${response.status} ${response.statusText}`);
