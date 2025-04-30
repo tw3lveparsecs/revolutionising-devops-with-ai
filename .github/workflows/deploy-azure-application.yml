@@ -91,6 +91,7 @@ jobs:
           cd app/client
           npm run build
         env:
+          NODE_OPTIONS: "--openssl-legacy-provider"
           # Set the API URL to point to our deployed backend
           REACT_APP_API_URL: https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net
 
