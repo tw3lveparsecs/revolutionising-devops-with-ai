@@ -125,6 +125,16 @@ jobs:
           cd app/client
           npm ci
 
+      - name: Update runtime config
+        run: |
+          echo "Updating runtime config.js with API URL: ${{ needs.get-deployment-info.outputs.backend_url }}"
+          cat > app/client/public/config.js << EOL
+          // Runtime configuration (auto-generated during deployment)
+          window.APP_CONFIG = {
+            API_URL: "${{ needs.get-deployment-info.outputs.backend_url }}"
+          };
+          EOL
+
       - name: Build client
         run: |
           cd app/client
