@@ -7,6 +7,7 @@ env:
   NODE_VERSION: "22.15"
   AZURE_WEBAPP_NAME: star-wars-collectibles-api
   AZURE_STATIC_WEB_APP_NAME: star-wars-collectibles-client
+  AZURE_RESOURCE_GROUP: star-wars-collectibles-rg
   MONGODB_CONNECTION_STRING: ${{ secrets.MONGODB_CONNECTION_STRING }}
 
 permissions:
@@ -27,14 +28,14 @@ jobs:
       - name: Get Azure Web App URL
         id: get-webapp-url
         run: |
-          API_URL=$(az webapp show --name ${{ env.AZURE_WEBAPP_NAME }} --query "defaultHostName" -o tsv)
+          API_URL=$(az webapp show --name ${{ env.AZURE_WEBAPP_NAME }} --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --query "defaultHostName" -o tsv)
           echo "BACKEND_URL=https://$API_URL" >> $GITHUB_OUTPUT
           echo "Backend URL: https://$API_URL"
 
       - name: Get Static Web App URL
         id: get-static-webapp-url
         run: |
-          FRONTEND_URL=$(az staticwebapp show --name ${{ env.AZURE_STATIC_WEB_APP_NAME }} --query "defaultHostname" -o tsv)
+          FRONTEND_URL=$(az staticwebapp show --name ${{ env.AZURE_STATIC_WEB_APP_NAME }} --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --query "defaultHostname" -o tsv)
           echo "FRONTEND_URL=https://$FRONTEND_URL" >> $GITHUB_OUTPUT
           echo "Frontend URL: https://$FRONTEND_URL"
     outputs:
@@ -153,4 +154,4 @@ jobs:
       - name: Add Static Web App Application Settings
         run: |
           # Note: API_URL will be used for runtime configuration if needed
-          az staticwebapp appsettings set --name ${{ env.AZURE_STATIC_WEB_APP_NAME }} --setting-names API_URL=${{ needs.get-deployment-info.outputs.backend_url }}
+          az staticwebapp appsettings set --name ${{ env.AZURE_STATIC_WEB_APP_NAME }} --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --setting-names API_URL=${{ needs.get-deployment-info.outputs.backend_url }}
