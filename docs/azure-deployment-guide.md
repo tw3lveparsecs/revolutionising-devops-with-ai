@@ -122,6 +122,11 @@ To configure custom domains:
 2. **Deployment Failures**: Check the GitHub Actions logs for detailed error information
 3. **CORS Errors**: Ensure your backend has CORS configured to allow requests from your frontend URL
 4. **Authentication Issues**: Verify that AZURE_CREDENTIALS secret is properly formatted and has correct permissions
+5. **"Stuck on Loading" Issues**: If your application is deployed but gets stuck on loading screens:
+   - Verify that `REACT_APP_API_URL` is correctly set during the build process with the actual backend URL
+   - Check that the URL doesn't have trailing slashes that could cause path resolution problems
+   - Examine browser console logs (F12 developer tools) for any API connection errors
+   - Ensure CORS is properly configured with the correct frontend origin URL
 
 ## References
 
