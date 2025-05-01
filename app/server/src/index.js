@@ -37,12 +37,20 @@ const corsOptions = {
     const allowedOrigins = [
       // Frontend URLs in production (configured from environment variables)
       process.env.FRONTEND_URL,
+      // Add your specific Static Web App domain that was rejected
+      "https://gentle-coast-08c5cd800.6.azurestaticapps.net",
+      // Other common Static Web App domains that might be used
+      "https://lively-tree-0be614900.6.azurestaticapps.net",
+      "https://white-meadow-0d8004700.6.azurestaticapps.net",
       // Common development URLs
       "http://localhost:3000",
       "http://localhost:8000",
       "http://127.0.0.1:3000",
       "http://127.0.0.1:8000",
     ].filter(Boolean); // Remove any undefined values
+
+    console.log(`Received request from origin: ${origin}`);
+    console.log(`Allowed origins: ${JSON.stringify(allowedOrigins)}`);
 
     // Allow requests with no origin (like mobile apps, curl, postman)
     if (!origin) return callback(null, true);
