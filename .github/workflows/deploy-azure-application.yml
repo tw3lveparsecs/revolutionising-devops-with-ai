@@ -65,6 +65,16 @@ jobs:
                 "name": "NODE_ENV",
                 "value": "production",
                 "slotSetting": false
+              },
+              {
+                "name": "WEBSITE_CORS_ALLOWED_ORIGINS",
+                "value": "https://lively-tree-0be614900.6.azurestaticapps.net",
+                "slotSetting": false
+              },
+              {
+                "name": "WEBSITE_CORS_SUPPORT_CREDENTIALS",
+                "value": "true",
+                "slotSetting": false
               }
             ]
 
