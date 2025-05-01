@@ -128,10 +128,16 @@ jobs:
       - name: Update runtime config
         run: |
           echo "Updating runtime config.js with API URL: ${{ needs.get-deployment-info.outputs.backend_url }}"
+          # Ensure the URL always uses HTTPS
+          API_URL="${{ needs.get-deployment-info.outputs.backend_url }}"
+          # If URL doesn't start with https://, add it
+          if [[ $API_URL != https://* ]]; then
+            API_URL="https://${API_URL#*://}"
+          fi
           cat > app/client/public/config.js << EOL
           // Runtime configuration (auto-generated during deployment)
           window.APP_CONFIG = {
-            API_URL: "${{ needs.get-deployment-info.outputs.backend_url }}"
+            API_URL: "$API_URL"
           };
           EOL
 

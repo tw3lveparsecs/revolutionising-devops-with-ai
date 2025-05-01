@@ -7,11 +7,23 @@ declare global {
   }
 }
 
+// Helper function to ensure URL uses HTTPS in production
+function ensureHttps(url: string): string {
+  // Skip for localhost development
+  if (url.includes("localhost")) return url;
+
+  // Force HTTPS by replacing http:// with https:// if needed
+  return url.replace(/^http:\/\//i, "https://");
+}
+
 // Use runtime configuration from window.APP_CONFIG or fall back to environment variable or localhost
-const API_URL =
+const rawApiUrl =
   window.APP_CONFIG?.API_URL ||
   process.env.REACT_APP_API_URL ||
   "http://localhost:5000";
+
+// Ensure we're using HTTPS in production
+const API_URL = ensureHttps(rawApiUrl);
 
 // Log the API URL to help with debugging
 console.log("API is configured to use URL:", API_URL);
@@ -22,6 +34,9 @@ async function apiRequest<T>(
   options?: RequestInit
 ): Promise<T> {
   try {
+    // Add more debugging for network issues
+    console.log(`Making API request to: ${API_URL}/api${endpoint}`);
+
     const response = await fetch(`${API_URL}/api${endpoint}`, options);
 
     if (!response.ok) {
