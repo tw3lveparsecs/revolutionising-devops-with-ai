@@ -30,38 +30,64 @@ app.use = function () {
   return originalUse.apply(this, arguments);
 };
 
+// Parse CORS origins from environment variable or use defaults
+function getAllowedOrigins() {
+  // Get frontend URL from WEBSITE_CORS_ALLOWED_ORIGINS environment variable set by Azure
+  const azureAllowedOrigins = process.env.WEBSITE_CORS_ALLOWED_ORIGINS
+    ? process.env.WEBSITE_CORS_ALLOWED_ORIGINS.split(",")
+    : [];
+
+  // Get explicit frontend URL if set during deployment
+  const frontendUrl = process.env.FRONTEND_URL;
+
+  // Default development origins
+  const developmentOrigins = [
+    "http://localhost:3000",
+    "http://localhost:8000",
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:8000",
+  ];
+
+  // Combine all sources, removing duplicates and empty values
+  const allOrigins = [
+    ...azureAllowedOrigins,
+    frontendUrl,
+    // Keep previously allowed production origins for backward compatibility
+    "https://gentle-coast-08c5cd800.6.azurestaticapps.net",
+    "https://lively-tree-0be614900.6.azurestaticapps.net",
+    "https://white-meadow-0d8004700.6.azurestaticapps.net",
+    ...developmentOrigins,
+  ].filter(Boolean); // Remove any undefined or empty values
+
+  console.log("Configured CORS allowed origins:", allOrigins);
+  return allOrigins;
+}
+
 // Enhanced CORS configuration for both local development and production
 const corsOptions = {
   // Allow requests from these origins
   origin: function (origin, callback) {
-    const allowedOrigins = [
-      // Frontend URLs in production (configured from environment variables)
-      process.env.FRONTEND_URL,
-      // Add your specific Static Web App domain that was rejected
-      "https://gentle-coast-08c5cd800.6.azurestaticapps.net",
-      // Other common Static Web App domains that might be used
-      "https://lively-tree-0be614900.6.azurestaticapps.net",
-      "https://white-meadow-0d8004700.6.azurestaticapps.net",
-      // Common development URLs
-      "http://localhost:3000",
-      "http://localhost:8000",
-      "http://127.0.0.1:3000",
-      "http://127.0.0.1:8000",
-    ].filter(Boolean); // Remove any undefined values
+    const allowedOrigins = getAllowedOrigins();
 
-    console.log(`Received request from origin: ${origin}`);
-    console.log(`Allowed origins: ${JSON.stringify(allowedOrigins)}`);
+    // Log for debugging
+    if (origin) {
+      console.log(`Received request from origin: ${origin}`);
+    }
 
     // Allow requests with no origin (like mobile apps, curl, postman)
     if (!origin) return callback(null, true);
 
     if (
-      allowedOrigins.indexOf(origin) !== -1 ||
+      allowedOrigins.includes(origin) ||
       process.env.NODE_ENV !== "production"
     ) {
       callback(null, true);
     } else {
-      console.warn(`Origin ${origin} not allowed by CORS`);
+      console.warn(
+        `Origin ${origin} not allowed by CORS. Allowed origins: ${JSON.stringify(
+          allowedOrigins
+        )}`
+      );
       callback(new Error("Not allowed by CORS"));
     }
   },
@@ -73,6 +99,18 @@ const corsOptions = {
 // Apply CORS middleware with our options
 app.use(cors(corsOptions));
 
+// Add a test route to check CORS configuration
+app.get("/api/cors-test", (req, res) => {
+  res.json({
+    message: "CORS is properly configured",
+    timestamp: new Date().toISOString(),
+    origin: req.headers.origin || "No origin header",
+    allowedOrigins: getAllowedOrigins(),
+    frontendUrl: process.env.FRONTEND_URL,
+    azureCorsOrigins: process.env.WEBSITE_CORS_ALLOWED_ORIGINS || "Not set",
+  });
+});
+
 // Other middleware
 app.use(express.json());
 app.use(
@@ -82,15 +120,6 @@ app.use(
   })
 );
 app.use(morgan("dev"));
-
-// Add a route to check CORS configuration
-app.get("/api/cors-test", (req, res) => {
-  res.json({
-    message: "CORS is properly configured",
-    timestamp: new Date().toISOString(),
-    origin: req.headers.origin || "No origin header",
-  });
-});
 
 // Routes - Make sure we're using string literals for route paths, not URL objects
 app.use("/api/collectibles", collectiblesRoutes);

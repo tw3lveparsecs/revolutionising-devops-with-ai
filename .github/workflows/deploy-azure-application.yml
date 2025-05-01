@@ -104,6 +104,11 @@ jobs:
                 "name": "WEBSITE_CORS_SUPPORT_CREDENTIALS",
                 "value": "true",
                 "slotSetting": false
+              },
+              {
+                "name": "FRONTEND_URL",
+                "value": "${{ needs.get-deployment-info.outputs.frontend_url }}",
+                "slotSetting": false
               }
             ]
 
