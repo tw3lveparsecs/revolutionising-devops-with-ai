@@ -15,6 +15,21 @@ const ordersRoutes = require("./routes/orders");
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+// Middleware to validate route paths to prevent path-to-regexp errors
+const originalUse = app.use;
+app.use = function () {
+  // Check if the first argument might be a URL instead of a path pattern
+  if (arguments[0] && typeof arguments[0] === "string") {
+    const path = arguments[0];
+    if (path.includes("http://") || path.includes("https://")) {
+      console.error(`ERROR: Attempted to use a URL as a route path: ${path}`);
+      // Replace with a safe path to prevent app from crashing
+      arguments[0] = "/invalid-path";
+    }
+  }
+  return originalUse.apply(this, arguments);
+};
+
 // Enhanced CORS configuration for both local development and production
 const corsOptions = {
   // Allow requests from these origins
