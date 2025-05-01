@@ -1,0 +1,115 @@
+name: Super-Linter Example
+
+on:
+  workflow_dispatch:
+    inputs:
+      resourceGroupName:
+        description: "Azure Resource Group Name"
+        required: true
+        default: "super-linter-rg"
+      location:
+        description: "Azure Region Location"
+        required: true
+        default: "australiaeast"
+      baseName:
+        description: "Base name for resources"
+        required: true
+        default: "super-linter"
+      staticWebAppLocation:
+        description: "Static Web App Location (can be different from main location)"
+        required: false
+        default: "eastasia"
+      appServicePlanSku:
+        description: "App Service Plan SKU"
+        required: false
+        default: "P1V2"
+  push:
+    branches:
+      - main
+    paths:
+      - "azure-infrastructure.bicep"
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  lint:
+    name: Lint Code
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+        with:
+          # Full git history is needed to get a proper list of changed files
+          fetch-depth: 0
+
+      - name: Lint with Super-Linter
+        uses: github/super-linter/slim@v7.3.0
+        env:
+          VALIDATE_ALL_CODEBASE: false
+          DEFAULT_BRANCH: main
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VALIDATE_BICEP: true
+          # Use all available Bicep linting rules
+          BICEP_LINTER_LEVEL: "all"
+          # Enable full linting report
+          LOG_LEVEL: "WARN"
+          # Report errors and warnings
+          ERROR_LEVEL: "error,warning"
+
+  deploy-infrastructure:
+    name: Deploy Azure Infrastructure
+    needs: lint
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+
+    steps:
+      - name: Wait for Approval (5 minutes)
+        run: |
+          echo "⏱️ Waiting for 5 minutes to allow time for manual approval before proceeding..."
+          echo "Deployment to PRODUCTION environment will begin at $(date -d '+5 minutes')"
+          sleep 300
+          echo "✅ Wait period completed. Proceeding with deployment..."
+
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Create Resource Group if not exists
+        run: |
+          az group create --name ${{ github.event.inputs.resourceGroupName || 'revolutionising-devops-prod-rg' }} --location ${{ github.event.inputs.location || 'eastus' }} --output none
+
+      - name: Deploy Bicep Template
+        id: deploy
+        uses: azure/arm-deploy@v1
+        with:
+          resourceGroupName: ${{ github.event.inputs.resourceGroupName || 'revolutionising-devops-prod-rg' }}
+          template: ./azure-infrastructure.bicep
+          parameters: >
+            baseName=${{ github.event.inputs.baseName || 'revolutionising-devops-prod' }}
+            location=${{ github.event.inputs.location || 'eastus' }}
+            staticWebAppLocation=${{ github.event.inputs.staticWebAppLocation || github.event.inputs.location || 'eastus' }}
+            appServicePlanSku=${{ github.event.inputs.appServicePlanSku || 'P1V2' }}
+
+      - name: Output Resource Information
+        run: |
+          echo "🚀 Azure Resources Deployed to PRODUCTION Environment Successfully! 🚀"
+          echo ""
+          echo "Resource Group: ${{ github.event.inputs.resourceGroupName || 'revolutionising-devops-prod-rg' }}"
+          echo "Base Name: ${{ github.event.inputs.baseName || 'revolutionising-devops-prod' }}"
+          echo "Region: ${{ github.event.inputs.location || 'eastus' }}"
+          echo "Static Web App Region: ${{ github.event.inputs.staticWebAppLocation || github.event.inputs.location || 'eastus' }}"
+          echo ""
+          echo "🌐 App Service URL: ${{ steps.deploy.outputs.appServiceUrl }}"
+          echo "🖥️ Static Web App URL: ${{ steps.deploy.outputs.staticWebAppUrl }}"
+          echo ""
+          echo "App Service Name: ${{ steps.deploy.outputs.appServiceName }}"
+          echo "Static Web App Name: ${{ steps.deploy.outputs.staticWebAppName }}"
