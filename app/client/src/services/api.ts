@@ -1,10 +1,19 @@
 // Add a TypeScript interface for the global window object with our config
 declare global {
   interface Window {
-    APP_CONFIG: {
-      API_URL: string;
+    APP_CONFIG?: {
+      API_URL?: string;
     };
   }
+}
+
+// Helper function to determine if we're running in a local development environment
+function isLocalDevelopment(): boolean {
+  return (
+    !process.env.NODE_ENV ||
+    process.env.NODE_ENV === "development" ||
+    window.location.hostname === "localhost"
+  );
 }
 
 // Helper function to ensure URL uses HTTPS in production
@@ -16,14 +25,30 @@ function ensureHttps(url: string): string {
   return url.replace(/^http:\/\//i, "https://");
 }
 
-// Use runtime configuration from window.APP_CONFIG or fall back to environment variable or localhost
-const rawApiUrl =
-  window.APP_CONFIG?.API_URL ||
-  process.env.REACT_APP_API_URL ||
-  "http://localhost:5000";
+// Get the appropriate API URL based on the environment
+function getApiUrl(): string {
+  // For local development, always use localhost
+  if (isLocalDevelopment()) {
+    console.log("Running in local development mode");
+    return "http://localhost:5000";
+  }
 
-// Ensure we're using HTTPS in production
-const API_URL = ensureHttps(rawApiUrl);
+  // In production, prefer the runtime config, then environment variable
+  const productionUrl =
+    window.APP_CONFIG?.API_URL || process.env.REACT_APP_API_URL;
+
+  if (!productionUrl) {
+    console.warn(
+      "No API URL configured, falling back to localhost (this will not work in production)"
+    );
+    return "http://localhost:5000";
+  }
+
+  return ensureHttps(productionUrl);
+}
+
+// Set the API URL
+const API_URL = getApiUrl();
 
 // Log the API URL to help with debugging
 console.log("API is configured to use URL:", API_URL);

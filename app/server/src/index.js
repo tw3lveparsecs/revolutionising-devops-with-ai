@@ -15,11 +15,59 @@ const ordersRoutes = require("./routes/orders");
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Middleware
-app.use(cors());
+// Enhanced CORS configuration for both local development and production
+const corsOptions = {
+  // Allow requests from these origins
+  origin: function (origin, callback) {
+    const allowedOrigins = [
+      // Frontend URLs in production (configured from environment variables)
+      process.env.FRONTEND_URL,
+      // Common development URLs
+      "http://localhost:3000",
+      "http://localhost:8000",
+      "http://127.0.0.1:3000",
+      "http://127.0.0.1:8000",
+    ].filter(Boolean); // Remove any undefined values
+
+    // Allow requests with no origin (like mobile apps, curl, postman)
+    if (!origin) return callback(null, true);
+
+    if (
+      allowedOrigins.indexOf(origin) !== -1 ||
+      process.env.NODE_ENV !== "production"
+    ) {
+      callback(null, true);
+    } else {
+      console.warn(`Origin ${origin} not allowed by CORS`);
+      callback(new Error("Not allowed by CORS"));
+    }
+  },
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+};
+
+// Apply CORS middleware with our options
+app.use(cors(corsOptions));
+
+// Other middleware
 app.use(express.json());
-app.use(helmet());
+app.use(
+  helmet({
+    // Allow loading from same origin for development
+    contentSecurityPolicy: false,
+  })
+);
 app.use(morgan("dev"));
+
+// Add a route to check CORS configuration
+app.get("/api/cors-test", (req, res) => {
+  res.json({
+    message: "CORS is properly configured",
+    timestamp: new Date().toISOString(),
+    origin: req.headers.origin || "No origin header",
+  });
+});
 
 // Routes - Make sure we're using string literals for route paths, not URL objects
 app.use("/api/collectibles", collectiblesRoutes);
