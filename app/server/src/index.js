@@ -21,10 +21,15 @@ app.use(express.json());
 app.use(helmet());
 app.use(morgan("dev"));
 
-// Routes
+// Routes - Make sure we're using string literals for route paths, not URL objects
 app.use("/api/collectibles", collectiblesRoutes);
 app.use("/api/users", usersRoutes);
 app.use("/api/orders", ordersRoutes);
+
+// Add a test route to check if the API is working
+app.get("/api/test", (req, res) => {
+  res.json({ message: "API is working!" });
+});
 
 // Serve static assets in production
 if (process.env.NODE_ENV === "production") {
@@ -35,9 +40,16 @@ if (process.env.NODE_ENV === "production") {
   });
 }
 
-// Add a test route to check if the API is working
-app.get("/api/test", (req, res) => {
-  res.json({ message: "API is working!" });
+// Error handling middleware
+app.use((err, req, res, next) => {
+  console.error("Server Error:", err);
+  res.status(500).json({
+    error: "Internal Server Error",
+    message:
+      process.env.NODE_ENV === "production"
+        ? "Something went wrong"
+        : err.message,
+  });
 });
 
 // Connect to MongoDB

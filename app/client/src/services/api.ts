@@ -1,6 +1,9 @@
 // Use environment variable for API URL or fallback to localhost for development
 const API_URL = process.env.REACT_APP_API_URL || "http://localhost:5000";
 
+// Log the API URL to help with debugging
+console.log("API is configured to use URL:", API_URL);
+
 // Generic API request function with error handling
 async function apiRequest<T>(
   endpoint: string,
