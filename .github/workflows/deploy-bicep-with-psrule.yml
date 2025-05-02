@@ -186,6 +186,15 @@ jobs:
             exit 1
           }
 
+      # Upload SARIF file as an artifact
+      - name: Upload SARIF Artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: ps-rule-results
+          path: reports/ps-rule-results.sarif
+          retention-days: 7
+          if-no-files-found: error
+
       # Optional: Upload results as SARIF - only runs if uploadSarif is true
       - name: Upload SARIF report
         if: ${{ github.event.inputs.uploadSarif == 'true' }}
