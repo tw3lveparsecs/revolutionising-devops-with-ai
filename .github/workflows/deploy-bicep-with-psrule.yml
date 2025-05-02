@@ -59,92 +59,60 @@ jobs:
           outputFormat: Sarif
           outputPath: reports/ps-rule-results.sarif
 
-      # Explicit run with full results output for accurate summary
-      - name: Get Full PSRule Analysis Results
-        id: psrule-detailed
+      - name: Create Detailed Job Summary
         shell: pwsh
         run: |
-          # Install required modules
-          Install-Module -Name PSRule.Rules.Azure -Repository PSGallery -Force
+          $sarifContent = Get-Content -Path reports/ps-rule-results.sarif -Raw | ConvertFrom-Json
+          $results = $sarifContent.runs[0].results
+          $rules = $sarifContent.runs[0].tool.driver.rules
 
-          # Set environment variable to suppress warnings
-          $env:PSRULE_AZURE_RESOURCE_MODULE_NOWARN = 'true'
+          # Count metrics
+          $passedRules = $results | Where-Object { $_.level -eq "none" } | Measure-Object | Select-Object -ExpandProperty Count
+          $failedRules = $results | Where-Object { $_.level -ne "none" } | Measure-Object | Select-Object -ExpandProperty Count
+          $totalRules = $passedRules + $failedRules
 
-          # Run analysis with error handling
-          try {
-            Write-Host "Running PSRule analysis..."
-            $results = @(Invoke-PSRule -Module PSRule.Rules.Azure -InputPath out/templates/azure-infrastructure.json -Format Json -As Detail -ErrorAction Stop)
+          # Set environment variables for later steps
+          echo "PASSED_RULES=$passedRules" >> $env:GITHUB_ENV
+          echo "FAILED_RULES=$failedRules" >> $env:GITHUB_ENV
+          echo "TOTAL_RULES=$totalRules" >> $env:GITHUB_ENV
 
-            Write-Host "Analysis completed with $($results.Count) results"
+          # Create job summary markdown
+          $summary = @"
+          ## PSRule for Azure - Validation Results
 
-            # Initialize counters
-            $passed = 0
-            $failed = 0
-            $total = $results.Count
+          | Metric | Count |
+          |--------|-------|
+          | ✅ Passed | $passedRules |
+          | ❌ Failed | $failedRules |
+          | 🔄 Total  | $totalRules |
 
-            # Count results safely
-            if ($results.Count -gt 0) {
-                $passed = ($results | Where-Object { $_.Outcome -eq 'Pass' }).Count
-                $failed = ($results | Where-Object { $_.Outcome -eq 'Fail' }).Count
-            } else {
-                Write-Host "No results returned from PSRule analysis"
-            }
+          ### Failed Rules Details
 
-            # Write totals to environment variables
-            echo "TOTAL_RULES=$total" >> $GITHUB_ENV
-            echo "PASSED_RULES=$passed" >> $GITHUB_ENV
-            echo "FAILED_RULES=$failed" >> $GITHUB_ENV
+          | Rule ID | Severity | Message | Help Link |
+          |---------|----------|---------|-----------|
+          "@
 
-            # Create detailed output of failed rules
-            $failedRules = @($results | Where-Object { $_.Outcome -eq 'Fail' })
+          # Add failed rules to the summary
+          foreach ($result in ($results | Where-Object { $_.level -ne "none" })) {
+            $ruleId = $result.ruleId.Split('/')[-1]
+            $rule = $rules | Where-Object { $_.id -eq $ruleId }
+            $severity = $result.level
+            $message = $result.message.text
+            $helpLink = $rule.helpUri
 
-            if ($failedRules.Count -gt 0) {
-                Write-Host "Found $($failedRules.Count) failed rules"
-                foreach ($rule in $failedRules) {
-                    Write-Host "FAILED: $($rule.RuleName) - $($rule.TargetName)"
-                    Write-Host "  Reason: $($rule.Reason)"
-                    Write-Host "  Recommendation: $($rule.Recommendation)"
-                    Write-Host "-----------------------------------------"
-                }
-            } else {
-                Write-Host "No failed rules found"
-            }
-
-            # Create markdown summary
-            Write-Output "## PSRule for Azure Analysis Summary" >> $GITHUB_STEP_SUMMARY
-            Write-Output "" >> $GITHUB_STEP_SUMMARY
-            Write-Output "| Category | Count |" >> $GITHUB_STEP_SUMMARY
-            Write-Output "| -------- | ----- |" >> $GITHUB_STEP_SUMMARY
-            Write-Output "| ✅ Passed | $passed |" >> $GITHUB_STEP_SUMMARY
-            Write-Output "| ❌ Failed | $failed |" >> $GITHUB_STEP_SUMMARY
-            Write-Output "| 🔄 Total Evaluated | $total |" >> $GITHUB_STEP_SUMMARY
-
-            if ($failed -gt 0 -and $failedRules.Count -gt 0) {
-                Write-Output "" >> $GITHUB_STEP_SUMMARY
-                Write-Output "### Failed Rules" >> $GITHUB_STEP_SUMMARY
-                Write-Output "" >> $GITHUB_STEP_SUMMARY
-                Write-Output "| Rule | Target | Recommendation |" >> $GITHUB_STEP_SUMMARY
-                Write-Output "| ---- | ------ | -------------- |" >> $GITHUB_STEP_SUMMARY
-
-                foreach ($rule in $failedRules) {
-                    $recommendation = if ($rule.Recommendation) { $rule.Recommendation } else { "Follow Azure best practices" }
-                    $targetName = if ($rule.TargetName) { $rule.TargetName } else { "Bicep Template" }
-                    Write-Output "| $($rule.RuleName) | $targetName | $recommendation |" >> $GITHUB_STEP_SUMMARY
-                }
-            }
+            $summary += "`n| $ruleId | $severity | $message | [Documentation]($helpLink) |"
           }
-          catch {
-            Write-Host "::error::PSRule analysis failed: $_"
-            Write-Host $_.ScriptStackTrace
-            echo "TOTAL_RULES=0" >> $GITHUB_ENV
-            echo "PASSED_RULES=0" >> $GITHUB_ENV
-            echo "FAILED_RULES=0" >> $GITHUB_ENV
 
-            # Create error summary
-            Write-Output "## ⚠️ PSRule Analysis Failed" >> $GITHUB_STEP_SUMMARY
-            Write-Output "" >> $GITHUB_STEP_SUMMARY
-            Write-Output "Error details: $_" >> $GITHUB_STEP_SUMMARY
+          if ($failedRules -eq 0) {
+            $summary += "`n\n✅ **Congratulations!** All rules passed validation. Your Azure resources follow best practices."
+          } else {
+            $summary += "`n\n⚠️ **Action Required:** Please review the failed rules and update your templates accordingly."
           }
+
+          # Write to step summary
+          $summary | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding UTF8
+
+          Write-Host "Created detailed job summary with PSRule validation results"
 
       # Optional: Upload results as SARIF - only runs if uploadSarif is true
       - name: Upload SARIF report
