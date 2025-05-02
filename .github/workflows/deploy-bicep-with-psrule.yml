@@ -52,24 +52,35 @@ jobs:
 
       # Use PSRule GitHub Action from marketplace with latest version
       - name: Run PSRule for Azure with detailed output
+        id: psrule
         uses: microsoft/ps-rule@v2.9.0
         with:
           modules: "PSRule.Rules.Azure"
           inputPath: out/templates/azure-infrastructure.json
           outputFormat: Sarif
           outputPath: reports/ps-rule-results.sarif
-          outcome: All
 
-      - name: Create Detailed Job Summary
+      # Capture the PSRule console output to a file
+      - name: Capture PSRule Console Output
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p reports
+          # Get the step output and save to a file
+          cat $GITHUB_STEP_SUMMARY > reports/psrule-console-output.txt
+          echo "PSRule console output captured to reports/psrule-console-output.txt"
+
+      - name: Create Detailed Job Summary with All Rules
         shell: pwsh
         run: |
           try {
-            # Check if file exists
+            # Check if SARIF file exists
             if (-not (Test-Path -Path reports/ps-rule-results.sarif)) {
               Write-Error "SARIF file not found at reports/ps-rule-results.sarif"
               exit 1
             }
 
+            # Parse SARIF file for failed rules
             $sarifContent = Get-Content -Path reports/ps-rule-results.sarif -Raw | ConvertFrom-Json
 
             # Validate SARIF structure
@@ -78,13 +89,48 @@ jobs:
               exit 1
             }
 
-            $results = $sarifContent.runs[0].results
+            $failedResults = $sarifContent.runs[0].results
             $rules = $sarifContent.runs[0].tool.driver.rules
 
+            # Now parse the console output to get all rule results
+            $allRules = @()
+
+            # Check if console output file exists
+            $consoleOutput = Get-Content -Path reports/psrule-console-output.txt -ErrorAction SilentlyContinue
+            if (-not $consoleOutput) {
+              Write-Warning "Console output file not found, falling back to SARIF data only"
+            } else {
+              # Extract rules from console output
+              # Looking for lines like "[PASS] Azure.Template.TemplateFile (AZR-000212)"
+              $ruleRegex = '\[(PASS|FAIL)\]\s+([\w\.]+)\s+\((AZR-\d{6})\)'
+
+              foreach ($line in $consoleOutput) {
+                if ($line -match $ruleRegex) {
+                  $status = $matches[1]
+                  $ruleName = $matches[2]
+                  $ruleId = $matches[3]
+
+                  # Add to our collection
+                  $allRules += [PSCustomObject]@{
+                    Status = $status
+                    Name = $ruleName
+                    RuleId = $ruleId
+                  }
+                }
+              }
+            }
+
             # Count metrics - with null safety
-            $passedRules = ($results | Where-Object { $_ -and $_.level -eq "none" } | Measure-Object).Count
-            $failedRules = ($results | Where-Object { $_ -and $_.level -ne "none" } | Measure-Object).Count
+            $passedRules = ($allRules | Where-Object { $_.Status -eq "PASS" } | Measure-Object).Count
+            $failedRules = ($allRules | Where-Object { $_.Status -eq "FAIL" } | Measure-Object).Count
             $totalRules = $passedRules + $failedRules
+
+            # If we couldn't extract from console, fall back to the SARIF file data
+            if ($totalRules -eq 0) {
+              $failedRules = ($failedResults | Where-Object { $_ -and $_.level -ne "none" } | Measure-Object).Count
+              # We can't know the passed count from SARIF, so we'll only have the failed count
+              $totalRules = $failedRules
+            }
 
             # Set environment variables for later steps
             echo "PASSED_RULES=$passedRules" >> $env:GITHUB_ENV
@@ -101,80 +147,115 @@ jobs:
           | ❌ Failed | $failedRules |
           | 🔄 Total  | $totalRules |
 
-          ### Failed Rules Details
+          ### All Analyzed Rules
 
-          | Rule ID | Severity | Message | Help Link |
-          |---------|----------|---------|-----------|
+          | Status | Rule ID | Rule Name | Help Link |
+          |--------|---------|-----------|-----------|
           "@
 
-            # Add failed rules to the summary with proper ID extraction
-            foreach ($result in ($results | Where-Object { $_ -and $_.level -ne "none" })) {
-              try {
-                # In PSRule SARIF files, the rule ID is usually at the end of the message
-                # Look for patterns like (AZR-000235) in the text or extract from ruleId
-                $message = $result.message.text ?? "No message available"
+            # First add all rules from the console output
+            foreach ($rule in $allRules) {
+              $icon = if ($rule.Status -eq "PASS") { "✅" } else { "❌" }
+              $ruleId = $rule.RuleId
+              $ruleName = $rule.Name
 
-                # Extract rule ID from message using regex - looking for AZR-\d{6} pattern
-                $ruleIdMatch = [regex]::Match($message, '(AZR-\d{6})')
-                $ruleId = "Unknown"
+              # Try to find help link
+              $helpLink = "https://azure.github.io/PSRule.Rules.Azure/en/rules/$ruleName"
 
-                if ($ruleIdMatch.Success) {
-                  $ruleId = $ruleIdMatch.Groups[1].Value
-                }
-                # If not found in message, try to get from rule.id or from full ruleId
-                elseif ($result.ruleId) {
-                  # Check if the full ruleId contains the pattern
-                  $fullRuleIdMatch = [regex]::Match($result.ruleId, '(AZR-\d{6})')
-                  if ($fullRuleIdMatch.Success) {
-                    $ruleId = $fullRuleIdMatch.Groups[1].Value
+              # Try to find in rules collection from SARIF
+              $ruleInfo = $rules | Where-Object { $_.id -eq $ruleId } | Select-Object -First 1
+              if ($ruleInfo -and $ruleInfo.helpUri) {
+                $helpLink = $ruleInfo.helpUri
+              }
+
+              $summary += "`n| $icon | $ruleId | $ruleName | [Documentation]($helpLink) |"
+            }
+
+            # If we couldn't extract from console, add the failed rules from SARIF
+            if ($allRules.Count -eq 0 -and $failedResults) {
+              # Add failed rules to the summary with proper ID extraction
+              foreach ($result in ($failedResults | Where-Object { $_ -and $_.level -ne "none" })) {
+                try {
+                  # Extract rule ID from message using regex - looking for AZR-\d{6} pattern
+                  $message = $result.message.text ?? "No message available"
+                  $ruleIdMatch = [regex]::Match($message, '(AZR-\d{6})')
+                  $ruleId = "Unknown"
+
+                  if ($ruleIdMatch.Success) {
+                    $ruleId = $ruleIdMatch.Groups[1].Value
                   }
-                  else {
-                    # Try to extract from the last part of ruleId
-                    $ruleIdParts = $result.ruleId.Split('/')
-                    if ($ruleIdParts.Length -gt 0) {
-                      $ruleId = $ruleIdParts[-1]
+                  elseif ($result.ruleId) {
+                    # Check if the full ruleId contains the pattern
+                    $fullRuleIdMatch = [regex]::Match($result.ruleId, '(AZR-\d{6})')
+                    if ($fullRuleIdMatch.Success) {
+                      $ruleId = $fullRuleIdMatch.Groups[1].Value
                     }
                   }
+
+                  $ruleName = $result.ruleId.Split('/')[-1] ?? "Unknown"
+                  $helpLink = "#"
+
+                  # Find the rule in the rules collection
+                  if ($ruleId -ne "Unknown") {
+                    $rule = $rules | Where-Object { $_.id -eq $ruleId } | Select-Object -First 1
+                    if ($rule -and $rule.helpUri) {
+                      $helpLink = $rule.helpUri
+                    }
+                  }
+
+                  $summary += "`n| ❌ | $ruleId | $ruleName | [Documentation]($helpLink) |"
                 }
-
-                # Find the rule in the rules collection
-                $rule = $null
-                if ($ruleId -ne "Unknown") {
-                  $rule = $rules | Where-Object { $_.id -eq $ruleId } | Select-Object -First 1
+                catch {
+                  $summary += "`n| ❌ | Error | Error processing rule result: $_ | # |"
                 }
-
-                $severity = $result.level ?? "unknown"
-                $helpLink = "#"
-
-                # Try to get help link from rule
-                if ($rule -and $rule.helpUri) {
-                  $helpLink = $rule.helpUri
-                }
-                # If not found in rule, check for link in the message text
-                elseif ($message -match "https?://[^\s]+") {
-                  $helpLink = $matches[0]
-                }
-
-                # Clean up the message by removing the rule ID part if it exists
-                $cleanedMessage = $message -replace '\(AZR-\d{6}\)', ''
-                $cleanedMessage = $cleanedMessage.Trim()
-
-                $summary += "`n| $ruleId | $severity | $cleanedMessage | [Documentation]($helpLink) |"
               }
-              catch {
-                $summary += "`n| Error | error | Error processing rule result: $_ | # |"
-                Write-Warning "Error processing rule result: $_"
+            }
+
+            # Add recommendations section if there are failed rules
+            if ($failedRules -gt 0) {
+              $summary += "`n`n### Failed Rules Details`n"
+
+              # Add failed rules to the summary with proper ID extraction
+              foreach ($result in ($failedResults | Where-Object { $_ -and $_.level -ne "none" })) {
+                try {
+                  # Extract rule ID and message
+                  $message = $result.message.text ?? "No message available"
+                  $ruleIdMatch = [regex]::Match($message, '(AZR-\d{6})')
+                  $ruleId = "Unknown"
+
+                  if ($ruleIdMatch.Success) {
+                    $ruleId = $ruleIdMatch.Groups[1].Value
+                  }
+                  elseif ($result.ruleId) {
+                    # Check if the full ruleId contains the pattern
+                    $fullRuleIdMatch = [regex]::Match($result.ruleId, '(AZR-\d{6})')
+                    if ($fullRuleIdMatch.Success) {
+                      $ruleId = $fullRuleIdMatch.Groups[1].Value
+                    }
+                  }
+
+                  # Clean up the message by removing the rule ID part if it exists
+                  $cleanedMessage = $message -replace '\(AZR-\d{6}\)', ''
+                  $cleanedMessage = $cleanedMessage.Trim()
+
+                  $summary += "`n**$ruleId**: $cleanedMessage`n"
+                }
+                catch {
+                  $summary += "`n**Error processing rule result**: $_`n"
+                }
               }
             }
 
             if ($failedRules -eq 0) {
-              $summary += "`n\n✅ **Congratulations!** All rules passed validation. Your Azure resources follow best practices."
+              $summary += "`n`n✅ **Congratulations!** All rules passed validation. Your Azure resources follow best practices."
             } else {
-              $summary += "`n\n⚠️ **Action Required:** Please review the failed rules and update your templates accordingly."
+              $summary += "`n`n⚠️ **Action Required:** Please review the failed rules and update your templates accordingly."
             }
 
             # Write to step summary
             $summary | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding UTF8
+            # Also save to a file
+            $summary | Out-File -FilePath reports/ps-rule-summary.md -Encoding UTF8
 
             Write-Host "Created detailed job summary with PSRule validation results"
           }
