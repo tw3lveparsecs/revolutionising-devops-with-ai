@@ -1,4 +1,4 @@
-name: Super-Linter Example
+name: Deploy Bicep with Super Linter
 
 on:
   workflow_dispatch:
