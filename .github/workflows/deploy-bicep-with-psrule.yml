@@ -45,7 +45,7 @@ jobs:
 
       # Use PSRule GitHub Action from marketplace with latest version
       - name: Run PSRule for Azure
-        uses: microsoft/psrule-actions@v2.9.0
+        uses: microsoft/ps-rule@v2.9.0
         with:
           modules: "PSRule.Rules.Azure"
           inputPath: out/templates/azure-infrastructure.json
