@@ -65,68 +65,68 @@ jobs:
         shell: bash
         run: |
           cat $GITHUB_STEP_SUMMARY
-          # Create directory if it doesn't exist
-          mkdir -p reports
+          # # Create directory if it doesn't exist
+          # mkdir -p reports
 
-          # Use the GITHUB_STEP_SUMMARY, which contains the output from the previous step
-          # Extract the line that contains "Rules processed:" using grep
-          SUMMARY_LINE=$(cat $GITHUB_STEP_SUMMARY | grep "Rules processed:" || echo "")
+          # # Use the GITHUB_STEP_SUMMARY, which contains the output from the previous step
+          # # Extract the line that contains "Rules processed:" using grep
+          # SUMMARY_LINE=$(cat $GITHUB_STEP_SUMMARY | grep "Rules processed:" || echo "")
 
-          if [ -z "$SUMMARY_LINE" ]; then
-            echo "Could not find 'Rules processed:' line in the output, checking log file"
-            # Try to find it in the runner's logs
-            GITHUB_ACTION_PATH="${GITHUB_WORKSPACE}/_temp/_runner_file_commands"
-            if [ -d "$GITHUB_ACTION_PATH" ]; then
-              for file in $(find $GITHUB_ACTION_PATH -type f -name "*" -mmin -5); do
-                if grep -q "Rules processed:" "$file"; then
-                  SUMMARY_LINE=$(grep "Rules processed:" "$file" | head -1)
-                  break
-                fi
-              done
-            fi
-          fi
+          # if [ -z "$SUMMARY_LINE" ]; then
+          #   echo "Could not find 'Rules processed:' line in the output, checking log file"
+          #   # Try to find it in the runner's logs
+          #   GITHUB_ACTION_PATH="${GITHUB_WORKSPACE}/_temp/_runner_file_commands"
+          #   if [ -d "$GITHUB_ACTION_PATH" ]; then
+          #     for file in $(find $GITHUB_ACTION_PATH -type f -name "*" -mmin -5); do
+          #       if grep -q "Rules processed:" "$file"; then
+          #         SUMMARY_LINE=$(grep "Rules processed:" "$file" | head -1)
+          #         break
+          #       fi
+          #     done
+          #   fi
+          # fi
 
-          # If still not found, try one more approach with direct output capture
-          if [ -z "$SUMMARY_LINE" ]; then
-            echo "Still couldn't find the summary line, running PSRule cmdlet directly"
-            SUMMARY_LINE=$(pwsh -Command "Import-Module -Name PSRule.Rules.Azure; Get-AzRuleTemplateLink -Path out/templates/azure-infrastructure.json | Assert-PSRule -Module PSRule.Rules.Azure -As Summary | ForEach-Object { 'Rules processed: ' + `$_.Total + ', failed: ' + `$_.Failed + ', errored: ' + `$_.Error }" || echo "")
-          fi
+          # # If still not found, try one more approach with direct output capture
+          # if [ -z "$SUMMARY_LINE" ]; then
+          #   echo "Still couldn't find the summary line, running PSRule cmdlet directly"
+          #   SUMMARY_LINE=$(pwsh -Command "Import-Module -Name PSRule.Rules.Azure; Get-AzRuleTemplateLink -Path out/templates/azure-infrastructure.json | Assert-PSRule -Module PSRule.Rules.Azure -As Summary | ForEach-Object { 'Rules processed: ' + `$_.Total + ', failed: ' + `$_.Failed + ', errored: ' + `$_.Error }" || echo "")
+          # fi
 
-          # Set default if all attempts failed
-          if [ -z "$SUMMARY_LINE" ]; then
-            SUMMARY_LINE="Rules processed: 0, failed: 0, errored: 0"
-            echo "::warning::Could not find rules summary, using default values"
-          fi
+          # # Set default if all attempts failed
+          # if [ -z "$SUMMARY_LINE" ]; then
+          #   SUMMARY_LINE="Rules processed: 0, failed: 0, errored: 0"
+          #   echo "::warning::Could not find rules summary, using default values"
+          # fi
 
-          echo "Found summary: $SUMMARY_LINE"
+          # echo "Found summary: $SUMMARY_LINE"
 
-          # Extract numbers using regex
-          PROCESSED=$(echo $SUMMARY_LINE | grep -oP "processed: \K\d+" || echo "0")
-          FAILED=$(echo $SUMMARY_LINE | grep -oP "failed: \K\d+" || echo "0")
-          ERRORED=$(echo $SUMMARY_LINE | grep -oP "errored: \K\d+" || echo "0")
-          PASSED=$((PROCESSED - FAILED - ERRORED))
+          # # Extract numbers using regex
+          # PROCESSED=$(echo $SUMMARY_LINE | grep -oP "processed: \K\d+" || echo "0")
+          # FAILED=$(echo $SUMMARY_LINE | grep -oP "failed: \K\d+" || echo "0")
+          # ERRORED=$(echo $SUMMARY_LINE | grep -oP "errored: \K\d+" || echo "0")
+          # PASSED=$((PROCESSED - FAILED - ERRORED))
 
-          # Save to environment variables
-          echo "PSRULE_SUMMARY=$SUMMARY_LINE" >> $GITHUB_ENV
-          echo "PROCESSED_RULES=$PROCESSED" >> $GITHUB_ENV
-          echo "FAILED_RULES=$FAILED" >> $GITHUB_ENV
-          echo "ERRORED_RULES=$ERRORED" >> $GITHUB_ENV
-          echo "PASSED_RULES=$PASSED" >> $GITHUB_ENV
+          # # Save to environment variables
+          # echo "PSRULE_SUMMARY=$SUMMARY_LINE" >> $GITHUB_ENV
+          # echo "PROCESSED_RULES=$PROCESSED" >> $GITHUB_ENV
+          # echo "FAILED_RULES=$FAILED" >> $GITHUB_ENV
+          # echo "ERRORED_RULES=$ERRORED" >> $GITHUB_ENV
+          # echo "PASSED_RULES=$PASSED" >> $GITHUB_ENV
 
-          # Save to output file
-          echo "$SUMMARY_LINE" > reports/ps-rule-summary.txt
+          # # Save to output file
+          # echo "$SUMMARY_LINE" > reports/ps-rule-summary.txt
 
-          # Create a job summary
-          echo "## PSRule Validation Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "📊 **$SUMMARY_LINE**" >> $GITHUB_STEP_SUMMARY
+          # # Create a job summary
+          # echo "## PSRule Validation Summary" >> $GITHUB_STEP_SUMMARY
+          # echo "" >> $GITHUB_STEP_SUMMARY
+          # echo "📊 **$SUMMARY_LINE**" >> $GITHUB_STEP_SUMMARY
 
-          # Display success or failure message based on results
-          if [ "$FAILED" -eq "0" ] && [ "$ERRORED" -eq "0" ]; then
-            echo "✅ **All rules passed successfully!**" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "⚠️ **Some rules failed validation. Please review the results.**" >> $GITHUB_STEP_SUMMARY
-          fi
+          # # Display success or failure message based on results
+          # if [ "$FAILED" -eq "0" ] && [ "$ERRORED" -eq "0" ]; then
+          #   echo "✅ **All rules passed successfully!**" >> $GITHUB_STEP_SUMMARY
+          # else
+          #   echo "⚠️ **Some rules failed validation. Please review the results.**" >> $GITHUB_STEP_SUMMARY
+          # fi
 
       # Optional: Upload results as SARIF - only runs if uploadSarif is true
       - name: Upload SARIF report
