@@ -62,22 +62,36 @@ jobs:
       - name: Create Detailed Job Summary
         shell: pwsh
         run: |
-          $sarifContent = Get-Content -Path reports/ps-rule-results.sarif -Raw | ConvertFrom-Json
-          $results = $sarifContent.runs[0].results
-          $rules = $sarifContent.runs[0].tool.driver.rules
+          try {
+            # Check if file exists
+            if (-not (Test-Path -Path reports/ps-rule-results.sarif)) {
+              Write-Error "SARIF file not found at reports/ps-rule-results.sarif"
+              exit 1
+            }
 
-          # Count metrics
-          $passedRules = $results | Where-Object { $_.level -eq "none" } | Measure-Object | Select-Object -ExpandProperty Count
-          $failedRules = $results | Where-Object { $_.level -ne "none" } | Measure-Object | Select-Object -ExpandProperty Count
-          $totalRules = $passedRules + $failedRules
+            $sarifContent = Get-Content -Path reports/ps-rule-results.sarif -Raw | ConvertFrom-Json
 
-          # Set environment variables for later steps
-          echo "PASSED_RULES=$passedRules" >> $env:GITHUB_ENV
-          echo "FAILED_RULES=$failedRules" >> $env:GITHUB_ENV
-          echo "TOTAL_RULES=$totalRules" >> $env:GITHUB_ENV
+            # Validate SARIF structure
+            if (-not $sarifContent.runs -or $sarifContent.runs.Count -eq 0) {
+              Write-Error "Invalid SARIF file structure: 'runs' array is missing or empty"
+              exit 1
+            }
 
-          # Create job summary markdown
-          $summary = @"
+            $results = $sarifContent.runs[0].results
+            $rules = $sarifContent.runs[0].tool.driver.rules
+
+            # Count metrics - with null safety
+            $passedRules = ($results | Where-Object { $_ -and $_.level -eq "none" } | Measure-Object).Count
+            $failedRules = ($results | Where-Object { $_ -and $_.level -ne "none" } | Measure-Object).Count
+            $totalRules = $passedRules + $failedRules
+
+            # Set environment variables for later steps
+            echo "PASSED_RULES=$passedRules" >> $env:GITHUB_ENV
+            echo "FAILED_RULES=$failedRules" >> $env:GITHUB_ENV
+            echo "TOTAL_RULES=$totalRules" >> $env:GITHUB_ENV
+
+            # Create job summary markdown
+            $summary = @"
           ## PSRule for Azure - Validation Results
 
           | Metric | Count |
@@ -92,27 +106,50 @@ jobs:
           |---------|----------|---------|-----------|
           "@
 
-          # Add failed rules to the summary
-          foreach ($result in ($results | Where-Object { $_.level -ne "none" })) {
-            $ruleId = $result.ruleId.Split('/')[-1]
-            $rule = $rules | Where-Object { $_.id -eq $ruleId }
-            $severity = $result.level
-            $message = $result.message.text
-            $helpLink = $rule.helpUri
+            # Add failed rules to the summary with null checks
+            foreach ($result in ($results | Where-Object { $_ -and $_.level -ne "none" })) {
+              try {
+                # Handle null ruleId safely
+                $ruleId = "Unknown"
+                if ($result.ruleId) {
+                  $ruleIdParts = $result.ruleId.Split('/')
+                  $ruleId = $ruleIdParts.Length -gt 0 ? $ruleIdParts[-1] : "Unknown"
+                }
 
-            $summary += "`n| $ruleId | $severity | $message | [Documentation]($helpLink) |"
+                # Find the rule carefully
+                $rule = $rules | Where-Object { $_.id -eq $ruleId } | Select-Object -First 1
+
+                $severity = $result.level ?? "unknown"
+                $message = $result.message.text ?? "No message available"
+                $helpLink = $rule.helpUri ?? "#"
+
+                $summary += "`n| $ruleId | $severity | $message | [Documentation]($helpLink) |"
+              }
+              catch {
+                $summary += "`n| Error | error | Error processing rule result | # |"
+                Write-Warning "Error processing rule result: $_"
+              }
+            }
+
+            if ($failedRules -eq 0) {
+              $summary += "`n\n✅ **Congratulations!** All rules passed validation. Your Azure resources follow best practices."
+            } else {
+              $summary += "`n\n⚠️ **Action Required:** Please review the failed rules and update your templates accordingly."
+            }
+
+            # Write to step summary
+            $summary | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding UTF8
+
+            Write-Host "Created detailed job summary with PSRule validation results"
           }
-
-          if ($failedRules -eq 0) {
-            $summary += "`n\n✅ **Congratulations!** All rules passed validation. Your Azure resources follow best practices."
-          } else {
-            $summary += "`n\n⚠️ **Action Required:** Please review the failed rules and update your templates accordingly."
+          catch {
+            Write-Error "Error processing PSRule results: $_"
+            Write-Host "::warning::Failed to generate PSRule summary: $_"
+            echo "PASSED_RULES=0" >> $env:GITHUB_ENV
+            echo "FAILED_RULES=0" >> $env:GITHUB_ENV
+            echo "TOTAL_RULES=0" >> $env:GITHUB_ENV
+            exit 1
           }
-
-          # Write to step summary
-          $summary | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding UTF8
-
-          Write-Host "Created detailed job summary with PSRule validation results"
 
       # Optional: Upload results as SARIF - only runs if uploadSarif is true
       - name: Upload SARIF report
