@@ -50,7 +50,6 @@ jobs:
           mkdir -p out/templates
           az bicep build --file azure-infrastructure.bicep --outfile out/templates/azure-infrastructure.json
 
-      # Use PSRule GitHub Action from marketplace with latest version
       - name: Run PSRule for Azure with detailed output
         id: psrule
         uses: microsoft/ps-rule@v2.9.0
@@ -70,212 +69,52 @@ jobs:
           cat $GITHUB_STEP_SUMMARY > reports/psrule-console-output.txt
           echo "PSRule console output captured to reports/psrule-console-output.txt"
 
-      - name: Create Detailed Job Summary with All Rules
-        shell: pwsh
+      - name: Extract Rules Summary
+        if: always()
+        shell: bash
         run: |
-          try {
-            # Check if SARIF file exists
-            if (-not (Test-Path -Path reports/ps-rule-results.sarif)) {
-              Write-Error "SARIF file not found at reports/ps-rule-results.sarif"
-              exit 1
-            }
+          # Extract the "Rules processed" summary line and save to a separate file
+          grep "Rules processed:" reports/psrule-console-output.txt > reports/rules-summary.txt || echo "Rules processed: 0, failed: 0, errored: 0" > reports/rules-summary.txt
 
-            # Parse SARIF file for failed rules
-            $sarifContent = Get-Content -Path reports/ps-rule-results.sarif -Raw | ConvertFrom-Json
+          # Also extract it to environment variables for use in other steps
+          if grep -q "Rules processed:" reports/rules-summary.txt; then
+            SUMMARY=$(cat reports/rules-summary.txt)
 
-            # Validate SARIF structure
-            if (-not $sarifContent.runs -or $sarifContent.runs.Count -eq 0) {
-              Write-Error "Invalid SARIF file structure: 'runs' array is missing or empty"
-              exit 1
-            }
+            # Extract numbers using regex
+            PROCESSED=$(echo $SUMMARY | grep -oP "processed: \K\d+")
+            FAILED=$(echo $SUMMARY | grep -oP "failed: \K\d+")
+            ERRORED=$(echo $SUMMARY | grep -oP "errored: \K\d+")
 
-            $failedResults = $sarifContent.runs[0].results
-            $rules = $sarifContent.runs[0].tool.driver.rules
+            echo "PROCESSED_RULES=$PROCESSED" >> $GITHUB_ENV
+            echo "FAILED_RULES=$FAILED" >> $GITHUB_ENV
+            echo "ERRORED_RULES=$ERRORED" >> $GITHUB_ENV
+            echo "TOTAL_RULES=$PROCESSED" >> $GITHUB_ENV
+            echo "PASSED_RULES=$(($PROCESSED - $FAILED - $ERRORED))" >> $GITHUB_ENV
 
-            # Now parse the console output to get all rule results
-            $allRules = @()
+            # Create a colorful summary message for the workflow
+            echo "## PSRule Validation Summary" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "📊 **$SUMMARY**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "| Metric | Count | Status |" >> $GITHUB_STEP_SUMMARY
+            echo "| ------ | ----- | ------ |" >> $GITHUB_STEP_SUMMARY
 
-            # Check if console output file exists
-            $consoleOutput = Get-Content -Path reports/psrule-console-output.txt -ErrorAction SilentlyContinue
-            if (-not $consoleOutput) {
-              Write-Warning "Console output file not found, falling back to SARIF data only"
-            } else {
-              # Extract rules from console output
-              # Looking for lines like "[PASS] Azure.Template.TemplateFile (AZR-000212)"
-              $ruleRegex = '\[(PASS|FAIL)\]\s+([\w\.]+)\s+\((AZR-\d{6})\)'
+            # Calculate passed rules
+            PASSED=$(($PROCESSED - $FAILED - $ERRORED))
+            echo "| ✅ Passed | $PASSED | $([ $PASSED -eq $PROCESSED ] && echo "✓ All rules passed!" || echo "") |" >> $GITHUB_STEP_SUMMARY
+            echo "| ❌ Failed | $FAILED | $([ $FAILED -gt 0 ] && echo "⚠️ Action required" || echo "") |" >> $GITHUB_STEP_SUMMARY
+            echo "| ⚠️ Errored | $ERRORED | $([ $ERRORED -gt 0 ] && echo "⚠️ Action required" || echo "") |" >> $GITHUB_STEP_SUMMARY
+            echo "| 🔄 Total | $PROCESSED | |" >> $GITHUB_STEP_SUMMARY
 
-              foreach ($line in $consoleOutput) {
-                if ($line -match $ruleRegex) {
-                  $status = $matches[1]
-                  $ruleName = $matches[2]
-                  $ruleId = $matches[3]
-
-                  # Add to our collection
-                  $allRules += [PSCustomObject]@{
-                    Status = $status
-                    Name = $ruleName
-                    RuleId = $ruleId
-                  }
-                }
-              }
-            }
-
-            # Count metrics - with null safety
-            $passedRules = ($allRules | Where-Object { $_.Status -eq "PASS" } | Measure-Object).Count
-            $failedRules = ($allRules | Where-Object { $_.Status -eq "FAIL" } | Measure-Object).Count
-            $totalRules = $passedRules + $failedRules
-
-            # If we couldn't extract from console, fall back to the SARIF file data
-            if ($totalRules -eq 0) {
-              $failedRules = ($failedResults | Where-Object { $_ -and $_.level -ne "none" } | Measure-Object).Count
-              # We can't know the passed count from SARIF, so we'll only have the failed count
-              $totalRules = $failedRules
-            }
-
-            # Set environment variables for later steps
-            echo "PASSED_RULES=$passedRules" >> $env:GITHUB_ENV
-            echo "FAILED_RULES=$failedRules" >> $env:GITHUB_ENV
-            echo "TOTAL_RULES=$totalRules" >> $env:GITHUB_ENV
-
-            # Create job summary markdown
-            $summary = @"
-          ## PSRule for Azure - Validation Results
-
-          | Metric | Count |
-          |--------|-------|
-          | ✅ Passed | $passedRules |
-          | ❌ Failed | $failedRules |
-          | 🔄 Total  | $totalRules |
-
-          ### All Analyzed Rules
-
-          | Status | Rule ID | Rule Name | Help Link |
-          |--------|---------|-----------|-----------|
-          "@
-
-            # First add all rules from the console output
-            foreach ($rule in $allRules) {
-              $icon = if ($rule.Status -eq "PASS") { "✅" } else { "❌" }
-              $ruleId = $rule.RuleId
-              $ruleName = $rule.Name
-
-              # Try to find help link
-              $helpLink = "https://azure.github.io/PSRule.Rules.Azure/en/rules/$ruleName"
-
-              # Try to find in rules collection from SARIF
-              $ruleInfo = $rules | Where-Object { $_.id -eq $ruleId } | Select-Object -First 1
-              if ($ruleInfo -and $ruleInfo.helpUri) {
-                $helpLink = $ruleInfo.helpUri
-              }
-
-              $summary += "`n| $icon | $ruleId | $ruleName | [Documentation]($helpLink) |"
-            }
-
-            # If we couldn't extract from console, add the failed rules from SARIF
-            if ($allRules.Count -eq 0 -and $failedResults) {
-              # Add failed rules to the summary with proper ID extraction
-              foreach ($result in ($failedResults | Where-Object { $_ -and $_.level -ne "none" })) {
-                try {
-                  # Extract rule ID from message using regex - looking for AZR-\d{6} pattern
-                  $message = $result.message.text ?? "No message available"
-                  $ruleIdMatch = [regex]::Match($message, '(AZR-\d{6})')
-                  $ruleId = "Unknown"
-
-                  if ($ruleIdMatch.Success) {
-                    $ruleId = $ruleIdMatch.Groups[1].Value
-                  }
-                  elseif ($result.ruleId) {
-                    # Check if the full ruleId contains the pattern
-                    $fullRuleIdMatch = [regex]::Match($result.ruleId, '(AZR-\d{6})')
-                    if ($fullRuleIdMatch.Success) {
-                      $ruleId = $fullRuleIdMatch.Groups[1].Value
-                    }
-                  }
-
-                  $ruleName = $result.ruleId.Split('/')[-1] ?? "Unknown"
-                  $helpLink = "#"
-
-                  # Find the rule in the rules collection
-                  if ($ruleId -ne "Unknown") {
-                    $rule = $rules | Where-Object { $_.id -eq $ruleId } | Select-Object -First 1
-                    if ($rule -and $rule.helpUri) {
-                      $helpLink = $rule.helpUri
-                    }
-                  }
-
-                  $summary += "`n| ❌ | $ruleId | $ruleName | [Documentation]($helpLink) |"
-                }
-                catch {
-                  $summary += "`n| ❌ | Error | Error processing rule result: $_ | # |"
-                }
-              }
-            }
-
-            # Add recommendations section if there are failed rules
-            if ($failedRules -gt 0) {
-              $summary += "`n`n### Failed Rules Details`n"
-
-              # Add failed rules to the summary with proper ID extraction
-              foreach ($result in ($failedResults | Where-Object { $_ -and $_.level -ne "none" })) {
-                try {
-                  # Extract rule ID and message
-                  $message = $result.message.text ?? "No message available"
-                  $ruleIdMatch = [regex]::Match($message, '(AZR-\d{6})')
-                  $ruleId = "Unknown"
-
-                  if ($ruleIdMatch.Success) {
-                    $ruleId = $ruleIdMatch.Groups[1].Value
-                  }
-                  elseif ($result.ruleId) {
-                    # Check if the full ruleId contains the pattern
-                    $fullRuleIdMatch = [regex]::Match($result.ruleId, '(AZR-\d{6})')
-                    if ($fullRuleIdMatch.Success) {
-                      $ruleId = $fullRuleIdMatch.Groups[1].Value
-                    }
-                  }
-
-                  # Clean up the message by removing the rule ID part if it exists
-                  $cleanedMessage = $message -replace '\(AZR-\d{6}\)', ''
-                  $cleanedMessage = $cleanedMessage.Trim()
-
-                  $summary += "`n**$ruleId**: $cleanedMessage`n"
-                }
-                catch {
-                  $summary += "`n**Error processing rule result**: $_`n"
-                }
-              }
-            }
-
-            if ($failedRules -eq 0) {
-              $summary += "`n`n✅ **Congratulations!** All rules passed validation. Your Azure resources follow best practices."
-            } else {
-              $summary += "`n`n⚠️ **Action Required:** Please review the failed rules and update your templates accordingly."
-            }
-
-            # Write to step summary
-            $summary | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding UTF8
-            # Also save to a file
-            $summary | Out-File -FilePath reports/ps-rule-summary.md -Encoding UTF8
-
-            Write-Host "Created detailed job summary with PSRule validation results"
-          }
-          catch {
-            Write-Error "Error processing PSRule results: $_"
-            Write-Host "::warning::Failed to generate PSRule summary: $_"
-            echo "PASSED_RULES=0" >> $env:GITHUB_ENV
-            echo "FAILED_RULES=0" >> $env:GITHUB_ENV
-            echo "TOTAL_RULES=0" >> $env:GITHUB_ENV
-            exit 1
-          }
-
-      # Upload SARIF file as an artifact
-      - name: Upload SARIF Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ps-rule-results
-          path: reports/ps-rule-results.sarif
-          retention-days: 7
-          if-no-files-found: error
+            echo "Rules summary extracted and processed successfully"
+          else
+            echo "Could not find rules summary in the output"
+            echo "PROCESSED_RULES=0" >> $GITHUB_ENV
+            echo "FAILED_RULES=0" >> $GITHUB_ENV
+            echo "ERRORED_RULES=0" >> $GITHUB_ENV
+            echo "TOTAL_RULES=0" >> $GITHUB_ENV
+            echo "PASSED_RULES=0" >> $GITHUB_ENV
+          fi
 
       # Optional: Upload results as SARIF - only runs if uploadSarif is true
       - name: Upload SARIF report
@@ -285,72 +124,3 @@ jobs:
           sarif_file: reports/ps-rule-results.sarif
           category: PSRule
         continue-on-error: true
-
-      # Add a summary message about the validation
-      - name: Validation Summary
-        run: |
-          echo "::group::PSRule Analysis Summary"
-          echo "🔍 PSRule for Azure validation completed"
-          echo "✅ Passed: ${{ env.PASSED_RULES }} rules"
-          echo "❌ Failed: ${{ env.FAILED_RULES }} rules"
-          echo "🔄 Total: ${{ env.TOTAL_RULES }} rules evaluated"
-
-          if [ "${{ env.FAILED_RULES }}" -gt "0" ]; then
-            echo "::warning ::${{ env.FAILED_RULES }} rules failed validation. See detailed report for recommendations."
-            echo "Failed rules are visible in the job summary and detailed logs above."
-          else
-            echo "✓ All rules passed! Your Azure resources follow best practices."
-          fi
-          echo "::endgroup::"
-
-  # deploy:
-  #   name: Deploy Bicep Infrastructure
-  #   runs-on: ubuntu-latest
-  #   needs: validate
-  #   environment:
-  #     name: production
-  #   steps:
-  #     - name: Wait for Approval (5 minutes)
-  #       run: |
-  #         echo "⏱️ Waiting for 5 minutes to allow time for manual approval before proceeding..."
-  #         echo "Deployment to PRODUCTION environment will begin at $(date -d '+5 minutes')"
-  #         sleep 300
-  #         echo "✅ Wait period completed. Proceeding with deployment..."
-
-  #     - name: Checkout code
-  #       uses: actions/checkout@v3
-
-  #     - name: Azure Login
-  #       uses: azure/login@v1
-  #       with:
-  #         client-id: ${{ secrets.AZURE_CLIENT_ID }}
-  #         tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-  #         subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-
-  #     - name: Create Resource Group if it doesn't exist
-  #       run: |
-  #         az group create \
-  #           --name ${{ github.event.inputs.resourceGroupName || 'revolutionising-devops-rg' }} \
-  #           --location ${{ github.event.inputs.location || 'eastus' }} \
-  #           --output none
-
-  #     - name: Deploy Bicep template
-  #       id: deploy
-  #       uses: azure/arm-deploy@v1
-  #       with:
-  #         resourceGroupName: ${{ github.event.inputs.resourceGroupName || 'revolutionising-devops-rg' }}
-  #         template: azure-infrastructure.bicep
-  #         parameters: >
-  #           baseName=${{ github.event.inputs.baseName || 'revolutionising-devops' }}
-  #           location=${{ github.event.inputs.location || 'eastus' }}
-
-  #     - name: Show Deployment Outputs
-  #       run: |
-  #         echo "🚀 Deployment Completed Successfully!"
-  #         echo ""
-  #         echo "📝 Output Values:"
-  #         echo "App Service URL: ${{ steps.deploy.outputs.appServiceUrl }}"
-  #         echo "Static Web App URL: ${{ steps.deploy.outputs.staticWebAppUrl }}"
-  #         echo "Cosmos DB Account Name: ${{ steps.deploy.outputs.cosmosAccountName }}"
-  #         echo "App Service Name: ${{ steps.deploy.outputs.appServiceName }}"
-  #         echo "Static Web App Name: ${{ steps.deploy.outputs.staticWebAppName }}"
