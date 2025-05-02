@@ -188,7 +188,7 @@ jobs:
 
       # Upload SARIF file as an artifact
       - name: Upload SARIF Artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: ps-rule-results
           path: reports/ps-rule-results.sarif
