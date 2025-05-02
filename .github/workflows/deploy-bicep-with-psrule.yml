@@ -106,27 +106,62 @@ jobs:
           |---------|----------|---------|-----------|
           "@
 
-            # Add failed rules to the summary with null checks
+            # Add failed rules to the summary with proper ID extraction
             foreach ($result in ($results | Where-Object { $_ -and $_.level -ne "none" })) {
               try {
-                # Handle null ruleId safely
+                # In PSRule SARIF files, the rule ID is usually at the end of the message
+                # Look for patterns like (AZR-000235) in the text or extract from ruleId
+                $message = $result.message.text ?? "No message available"
+
+                # Extract rule ID from message using regex - looking for AZR-\d{6} pattern
+                $ruleIdMatch = [regex]::Match($message, '(AZR-\d{6})')
                 $ruleId = "Unknown"
-                if ($result.ruleId) {
-                  $ruleIdParts = $result.ruleId.Split('/')
-                  $ruleId = $ruleIdParts.Length -gt 0 ? $ruleIdParts[-1] : "Unknown"
+
+                if ($ruleIdMatch.Success) {
+                  $ruleId = $ruleIdMatch.Groups[1].Value
+                }
+                # If not found in message, try to get from rule.id or from full ruleId
+                elseif ($result.ruleId) {
+                  # Check if the full ruleId contains the pattern
+                  $fullRuleIdMatch = [regex]::Match($result.ruleId, '(AZR-\d{6})')
+                  if ($fullRuleIdMatch.Success) {
+                    $ruleId = $fullRuleIdMatch.Groups[1].Value
+                  }
+                  else {
+                    # Try to extract from the last part of ruleId
+                    $ruleIdParts = $result.ruleId.Split('/')
+                    if ($ruleIdParts.Length -gt 0) {
+                      $ruleId = $ruleIdParts[-1]
+                    }
+                  }
                 }
 
-                # Find the rule carefully
-                $rule = $rules | Where-Object { $_.id -eq $ruleId } | Select-Object -First 1
+                # Find the rule in the rules collection
+                $rule = $null
+                if ($ruleId -ne "Unknown") {
+                  $rule = $rules | Where-Object { $_.id -eq $ruleId } | Select-Object -First 1
+                }
 
                 $severity = $result.level ?? "unknown"
-                $message = $result.message.text ?? "No message available"
-                $helpLink = $rule.helpUri ?? "#"
+                $helpLink = "#"
 
-                $summary += "`n| $ruleId | $severity | $message | [Documentation]($helpLink) |"
+                # Try to get help link from rule
+                if ($rule -and $rule.helpUri) {
+                  $helpLink = $rule.helpUri
+                }
+                # If not found in rule, check for link in the message text
+                elseif ($message -match "https?://[^\s]+") {
+                  $helpLink = $matches[0]
+                }
+
+                # Clean up the message by removing the rule ID part if it exists
+                $cleanedMessage = $message -replace '\(AZR-\d{6}\)', ''
+                $cleanedMessage = $cleanedMessage.Trim()
+
+                $summary += "`n| $ruleId | $severity | $cleanedMessage | [Documentation]($helpLink) |"
               }
               catch {
-                $summary += "`n| Error | error | Error processing rule result | # |"
+                $summary += "`n| Error | error | Error processing rule result: $_ | # |"
                 Write-Warning "Error processing rule result: $_"
               }
             }
