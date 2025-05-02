@@ -60,61 +60,61 @@ jobs:
           outputPath: reports/ps-rule-results.sarif
 
       # Capture the PSRule console output to a file
-      - name: Capture PSRule Console Output
+      - name: Capture PSRule Console Output and Extract Summary
         if: always()
-        shell: bash
+        shell: pwsh
         run: |
-          mkdir -p reports
-          # Get the step output and save to a file
-          cat $GITHUB_STEP_SUMMARY > reports/psrule-console-output.txt
-          echo "PSRule console output captured to reports/psrule-console-output.txt"
+          # Retrieve and examine the PSRule output
+          $env:PSRULE_OUTPUT_PATH = "reports"
+          $env:PSRULE_OUTPUT_NAME = "ps-rule-results"
 
-      - name: Extract Rules Summary
-        if: always()
-        shell: bash
-        run: |
-          # Extract the "Rules processed" summary line and save to a separate file
-          grep "Rules processed:" reports/psrule-console-output.txt > reports/rules-summary.txt || echo "Rules processed: 0, failed: 0, errored: 0" > reports/rules-summary.txt
+          # Run PSRule cmdlet again to capture the output directly
+          Import-Module -Name PSRule.Rules.Azure
+          $results = Get-AzRuleTemplateLink -Path out/templates/azure-infrastructure.json | Assert-PSRule -Module PSRule.Rules.Azure -As Summary
 
-          # Also extract it to environment variables for use in other steps
-          if grep -q "Rules processed:" reports/rules-summary.txt; then
-            SUMMARY=$(cat reports/rules-summary.txt)
+          # Write summary to a file
+          $summary = "Rules processed: $($results.Total), failed: $($results.Failed), errored: $($results.Error)"
+          Write-Output "Summary: $summary"
 
-            # Extract numbers using regex
-            PROCESSED=$(echo $SUMMARY | grep -oP "processed: \K\d+")
-            FAILED=$(echo $SUMMARY | grep -oP "failed: \K\d+")
-            ERRORED=$(echo $SUMMARY | grep -oP "errored: \K\d+")
+          # Create directory if it doesn't exist
+          if (-not (Test-Path -Path reports)) {
+            New-Item -Path reports -ItemType Directory -Force | Out-Null
+          }
 
-            echo "PROCESSED_RULES=$PROCESSED" >> $GITHUB_ENV
-            echo "FAILED_RULES=$FAILED" >> $GITHUB_ENV
-            echo "ERRORED_RULES=$ERRORED" >> $GITHUB_ENV
-            echo "TOTAL_RULES=$PROCESSED" >> $GITHUB_ENV
-            echo "PASSED_RULES=$(($PROCESSED - $FAILED - $ERRORED))" >> $GITHUB_ENV
+          # Save summary to file
+          $summary | Set-Content -Path "reports/ps-rule-summary.txt"
 
-            # Create a colorful summary message for the workflow
-            echo "## PSRule Validation Summary" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "📊 **$SUMMARY**" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "| Metric | Count | Status |" >> $GITHUB_STEP_SUMMARY
-            echo "| ------ | ----- | ------ |" >> $GITHUB_STEP_SUMMARY
+          # Set environment variables for next steps
+          echo "PROCESSED_RULES=$($results.Total)" >> $env:GITHUB_ENV
+          echo "FAILED_RULES=$($results.Failed)" >> $env:GITHUB_ENV
+          echo "ERRORED_RULES=$($results.Error)" >> $env:GITHUB_ENV
+          echo "PASSED_RULES=$($results.Passed)" >> $env:GITHUB_ENV
 
-            # Calculate passed rules
-            PASSED=$(($PROCESSED - $FAILED - $ERRORED))
-            echo "| ✅ Passed | $PASSED | $([ $PASSED -eq $PROCESSED ] && echo "✓ All rules passed!" || echo "") |" >> $GITHUB_STEP_SUMMARY
-            echo "| ❌ Failed | $FAILED | $([ $FAILED -gt 0 ] && echo "⚠️ Action required" || echo "") |" >> $GITHUB_STEP_SUMMARY
-            echo "| ⚠️ Errored | $ERRORED | $([ $ERRORED -gt 0 ] && echo "⚠️ Action required" || echo "") |" >> $GITHUB_STEP_SUMMARY
-            echo "| 🔄 Total | $PROCESSED | |" >> $GITHUB_STEP_SUMMARY
+          # Create job summary
+          $summaryContent = @"
+          ## PSRule Validation Summary
 
-            echo "Rules summary extracted and processed successfully"
-          else
-            echo "Could not find rules summary in the output"
-            echo "PROCESSED_RULES=0" >> $GITHUB_ENV
-            echo "FAILED_RULES=0" >> $GITHUB_ENV
-            echo "ERRORED_RULES=0" >> $GITHUB_ENV
-            echo "TOTAL_RULES=0" >> $GITHUB_ENV
-            echo "PASSED_RULES=0" >> $GITHUB_ENV
-          fi
+          📊 **$summary**
+
+          | Metric | Count | Status |
+          | ------ | ----- | ------ |
+          | ✅ Passed | $($results.Passed) | $(if ($results.Failed -eq 0 -and $results.Error -eq 0) { "✓ All rules passed!" } else { "" }) |
+          | ❌ Failed | $($results.Failed) | $(if ($results.Failed -gt 0) { "⚠️ Action required" } else { "" }) |
+          | ⚠️ Errored | $($results.Error) | $(if ($results.Error -gt 0) { "⚠️ Action required" } else { "" }) |
+          | 🔄 Total | $($results.Total) | |
+          "@
+
+          $summaryContent | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding UTF8
+          Write-Output "Job summary created successfully"
+
+      # Upload SARIF file as an artifact
+      - name: Upload SARIF Artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: ps-rule-results
+          path: reports/ps-rule-results.sarif
+          retention-days: 7
+          if-no-files-found: error
 
       # Optional: Upload results as SARIF - only runs if uploadSarif is true
       - name: Upload SARIF report
