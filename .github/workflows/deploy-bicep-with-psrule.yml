@@ -24,11 +24,9 @@ on:
         required: false
         default: "P1V2"
 
-# Reduced permissions if not uploading SARIF results
 permissions:
   id-token: write
   contents: read
-  # security-events: write # Only needed if uploadSarif is true
 
 jobs:
   validate:
