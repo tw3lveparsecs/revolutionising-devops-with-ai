@@ -73,7 +73,7 @@ jobs:
           # Run analysis with error handling
           try {
             Write-Host "Running PSRule analysis..."
-            $results = @(Invoke-PSRule -Module PSRule.Rules.Azure -InputPath out/templates/azure-infrastructure.json -Format Json -OutputFormat Yaml -As Detail -ErrorAction Stop)
+            $results = @(Invoke-PSRule -Module PSRule.Rules.Azure -InputPath out/templates/azure-infrastructure.json -Format Json -OutputFormat Json -As Detail -ErrorAction Stop)
 
             Write-Host "Analysis completed with $($results.Count) results"
 
