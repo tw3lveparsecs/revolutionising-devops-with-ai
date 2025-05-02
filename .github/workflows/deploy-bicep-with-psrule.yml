@@ -1,4 +1,4 @@
-name: Deploy Bicep with PSRule
+name: Deploy Bicep with PSRule Validation
 
 on:
   workflow_dispatch:
@@ -24,9 +24,11 @@ on:
         required: false
         default: "P1V2"
 
+# Update permissions to include security-events write access
 permissions:
   id-token: write
   contents: read
+  security-events: write # Required for uploading SARIF results
 
 jobs:
   validate:
@@ -52,7 +54,7 @@ jobs:
           outputFormat: Sarif
           outputPath: reports/ps-rule-results.sarif
 
-      # Upload results as SARIF
+      # Upload results as SARIF - fixed with correct permissions
       - name: Upload SARIF report
         uses: github/codeql-action/upload-sarif@v3
         if: always()
