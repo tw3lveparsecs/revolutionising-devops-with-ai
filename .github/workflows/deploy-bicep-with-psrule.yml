@@ -58,6 +58,7 @@ jobs:
           inputPath: out/templates/azure-infrastructure.json
           outputFormat: Sarif
           outputPath: reports/ps-rule-results.sarif
+          outcome: Processed
 
       - name: Create Detailed Job Summary
         shell: pwsh
