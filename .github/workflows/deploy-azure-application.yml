@@ -1,0 +1,178 @@
+name: Deploy Azure Application
+
+on:
+  workflow_dispatch:
+
+env:
+  NODE_VERSION: "22.15"
+  AZURE_WEBAPP_NAME: star-wars-collectibles-api
+  AZURE_STATIC_WEB_APP_NAME: star-wars-collectibles-client
+  AZURE_RESOURCE_GROUP: star-wars-collectibles-rg
+  MONGODB_CONNECTION_STRING: ${{ secrets.MONGODB_CONNECTION_STRING }}
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  get-deployment-info:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Login to Azure
+        uses: azure/login@v1
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Get Azure Web App URL
+        id: get-webapp-url
+        run: |
+          API_URL=$(az webapp show --name ${{ env.AZURE_WEBAPP_NAME }} --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --query "defaultHostName" -o tsv)
+          echo "BACKEND_URL=https://$API_URL" >> $GITHUB_OUTPUT
+          echo "Backend URL: https://$API_URL"
+
+      - name: Get Static Web App URL
+        id: get-static-webapp-url
+        run: |
+          FRONTEND_URL=$(az staticwebapp show --name ${{ env.AZURE_STATIC_WEB_APP_NAME }} --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --query "defaultHostname" -o tsv)
+          echo "FRONTEND_URL=https://$FRONTEND_URL" >> $GITHUB_OUTPUT
+          echo "Frontend URL: https://$FRONTEND_URL"
+    outputs:
+      backend_url: ${{ steps.get-webapp-url.outputs.BACKEND_URL }}
+      frontend_url: ${{ steps.get-static-webapp-url.outputs.FRONTEND_URL }}
+
+  build-and-deploy-backend:
+    runs-on: ubuntu-latest
+    needs: get-deployment-info
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+          cache-dependency-path: "app/server/package-lock.json"
+
+      - name: Install dependencies
+        run: |
+          cd app/server
+          npm ci
+
+      - name: Build server
+        run: |
+          cd app/server
+          npm run build --if-present
+
+      - name: Login to Azure
+        uses: azure/login@v1
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Deploy to Azure App Service
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ env.AZURE_WEBAPP_NAME }}
+          package: app/server
+          startup-command: "npm start"
+
+      - name: Configure App Settings
+        uses: azure/appservice-settings@v1
+        with:
+          app-name: ${{ env.AZURE_WEBAPP_NAME }}
+          app-settings-json: |
+            [
+              {
+                "name": "MONGODB_URI",
+                "value": "${{ secrets.MONGODB_CONNECTION_STRING }}",
+                "slotSetting": false
+              },
+              {
+                "name": "NODE_ENV",
+                "value": "production",
+                "slotSetting": false
+              },
+              {
+                "name": "WEBSITE_CORS_ALLOWED_ORIGINS",
+                "value": "${{ needs.get-deployment-info.outputs.frontend_url }}",
+                "slotSetting": false
+              },
+              {
+                "name": "WEBSITE_CORS_SUPPORT_CREDENTIALS",
+                "value": "true",
+                "slotSetting": false
+              },
+              {
+                "name": "FRONTEND_URL",
+                "value": "${{ needs.get-deployment-info.outputs.frontend_url }}",
+                "slotSetting": false
+              }
+            ]
+
+  build-and-deploy-frontend:
+    runs-on: ubuntu-latest
+    needs: [get-deployment-info, build-and-deploy-backend]
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+          cache-dependency-path: "app/client/package-lock.json"
+
+      - name: Install dependencies
+        run: |
+          cd app/client
+          npm ci
+
+      - name: Update runtime config
+        run: |
+          echo "Updating runtime config.js with API URL: ${{ needs.get-deployment-info.outputs.backend_url }}"
+          # Ensure the URL always uses HTTPS
+          API_URL="${{ needs.get-deployment-info.outputs.backend_url }}"
+          # If URL doesn't start with https://, add it
+          if [[ $API_URL != https://* ]]; then
+            API_URL="https://${API_URL#*://}"
+          fi
+          cat > app/client/public/config.js << EOL
+          // Runtime configuration (auto-generated during deployment)
+          window.APP_CONFIG = {
+            API_URL: "$API_URL"
+          };
+          EOL
+
+      - name: Build client
+        run: |
+          cd app/client
+          npm run build
+        env:
+          NODE_OPTIONS: "--openssl-legacy-provider"
+          # Set the API URL to point to our deployed backend using the dynamic value
+          REACT_APP_API_URL: ${{ needs.get-deployment-info.outputs.backend_url }}
+
+      - name: Login to Azure
+        uses: azure/login@v1
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Deploy to Static Web App
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.STATIC_WEB_APP_DEPLOY_TOKEN }}
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          action: "upload"
+          app_location: "app/client/build"
+          api_location: "" # No API with Static Web App as we're using App Service
+          output_location: ""
+
+      - name: Add Static Web App Application Settings
+        run: |
+          # Note: API_URL will be used for runtime configuration if needed
+          az staticwebapp appsettings set --name ${{ env.AZURE_STATIC_WEB_APP_NAME }} --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --setting-names API_URL=${{ needs.get-deployment-info.outputs.backend_url }}

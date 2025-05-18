@@ -1,0 +1,105 @@
+name: Deploy Bicep with PSRule
+
+on:
+  workflow_dispatch:
+    inputs:
+      resourceGroupName:
+        description: "Azure Resource Group Name"
+        required: true
+        default: "ps-rule-rg"
+      location:
+        description: "Azure Region Location"
+        required: true
+        default: "australiaeast"
+      baseName:
+        description: "Base name for resources"
+        required: true
+        default: "ps-rule"
+      staticWebAppLocation:
+        description: "Static Web App Location (can be different from main location)"
+        required: false
+        default: "eastasia"
+      appServicePlanSku:
+        description: "App Service Plan SKU"
+        required: false
+        default: "P1V2"
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  validate:
+    name: Validate Bicep with PSRule
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Export Bicep Template for PSRule Analysis
+        shell: pwsh
+        run: |
+          az bicep install
+          mkdir -p out/templates
+          az bicep build --file azure-infrastructure.bicep --outfile out/templates/azure-infrastructure.json
+
+      - name: Run PSRule for Azure with detailed output
+        id: psrule
+        uses: microsoft/ps-rule@v2.9.0
+        with:
+          modules: "PSRule.Rules.Azure"
+          inputPath: out/templates/azure-infrastructure.json
+          outputFormat: Sarif
+          outputPath: reports/ps-rule-results.sarif
+
+  deploy:
+    name: Deploy Bicep Infrastructure
+    runs-on: ubuntu-latest
+    needs: validate
+    environment:
+      name: production
+    steps:
+      - name: Wait for Approval (5 minutes)
+        run: |
+          echo "⏱️ Waiting for 5 minutes to allow time for manual approval before proceeding..."
+          echo "Deployment to PRODUCTION environment will begin at $(date -d '+5 minutes')"
+          sleep 300
+          echo "✅ Wait period completed. Proceeding with deployment..."
+
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Create Resource Group if it doesn't exist
+        run: |
+          az group create \
+            --name ${{ github.event.inputs.resourceGroupName || 'revolutionising-devops-rg' }} \
+            --location ${{ github.event.inputs.location || 'eastus' }} \
+            --output none
+
+      - name: Deploy Bicep template
+        id: deploy
+        uses: azure/arm-deploy@v1
+        with:
+          resourceGroupName: ${{ github.event.inputs.resourceGroupName || 'revolutionising-devops-rg' }}
+          template: azure-infrastructure.bicep
+          parameters: >
+            baseName=${{ github.event.inputs.baseName || 'revolutionising-devops' }}
+            location=${{ github.event.inputs.location || 'eastus' }}
+
+      - name: Show Deployment Outputs
+        run: |
+          echo "🚀 Deployment Completed Successfully!"
+          echo ""
+          echo "📝 Output Values:"
+          echo "App Service URL: ${{ steps.deploy.outputs.appServiceUrl }}"
+          echo "Static Web App URL: ${{ steps.deploy.outputs.staticWebAppUrl }}"
+          echo "Cosmos DB Account Name: ${{ steps.deploy.outputs.cosmosAccountName }}"
+          echo "App Service Name: ${{ steps.deploy.outputs.appServiceName }}"
+          echo "Static Web App Name: ${{ steps.deploy.outputs.staticWebAppName }}"

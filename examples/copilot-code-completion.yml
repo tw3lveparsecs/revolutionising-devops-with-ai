@@ -1,0 +1,11 @@
+# create a GitHub Action that runs on push to the main branch and on pull request to the main branch
+# the action should deploy a web app to azure. The web app consists of a REACT frontend and a node.js backend with a mongodb database
+# it should have a name "Autocomplete"
+# it should run on ubuntu-latest
+# it should checkout the code
+# it should authenticate to azure using OpenID Connect
+# it should have a build and deploy job
+# the build job should build the frontend and backend and run tests then publish the artifacts
+# the deploy job should deploy the artifacts to azure
+# there should be no hardcoded values and the values should be defined as environment variables
+# it should use an strategy matrix to deploy to multiple environments dev, test, prod
